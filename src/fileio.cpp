@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2017-2023, Manticore Software LTD (https://manticoresearch.com)
+// Copyright (c) 2017-2024, Manticore Software LTD (https://manticoresearch.com)
 // Copyright (c) 2001-2016, Andrew Aksyonoff
 // Copyright (c) 2008-2016, Sphinx Technologies Inc
 // All rights reserved
@@ -76,6 +76,14 @@ void CSphAutofile::Close()
 	m_iFD = -1;
 	m_sFilename = "";
 	m_bTemporary = false;
+}
+
+
+int CSphAutofile::LeakID ()
+{
+	m_sFilename = "";
+	m_bTemporary = false;
+	return std::exchange ( m_iFD, -1 );
 }
 
 void CSphAutofile::SetPersistent()
@@ -449,8 +457,25 @@ SphOffset_t	CSphReader::GetFilesize() const
 	return sphGetFileSize ( m_iFD, nullptr );
 }
 
+#if TRACE_UNZIP
+std::array<std::atomic<uint64_t>, 5> CSphReader::m_dZip32Stats = { 0 };
+std::array<std::atomic<uint64_t>, 10> CSphReader::m_dZip64Stats = { 0 };
+
+DWORD CSphReader::UnzipInt()
+{
+	DWORD uRes = UnzipValueBE<DWORD> ( [this]() mutable { return GetByte(); } );
+	m_dZip32Stats[sphCalcZippedLen ( uRes ) - 1].fetch_add ( 1, std::memory_order_relaxed );
+	return uRes;
+}
 
 
+uint64_t CSphReader::UnzipOffset()
+{
+	uint64_t uRes = UnzipValueBE<uint64_t> ( [this]() mutable { return GetByte(); } );
+	m_dZip64Stats[sphCalcZippedLen ( uRes ) - 1].fetch_add ( 1, std::memory_order_relaxed );
+	return uRes;
+}
+#else
 DWORD CSphReader::UnzipInt()
 {
 	return UnzipValueBE<DWORD> ( [this]() mutable { return GetByte(); } );
@@ -461,7 +486,7 @@ uint64_t CSphReader::UnzipOffset()
 {
 	return UnzipValueBE<uint64_t> ( [this]() mutable { return GetByte(); } );
 }
-
+#endif
 
 CSphReader & CSphReader::operator = ( const CSphReader & rhs )
 {
@@ -490,14 +515,25 @@ SphOffset_t CSphReader::GetOffset()
 CSphString CSphReader::GetString()
 {
 	CSphString sRes;
-
-	DWORD iLen = GetDword();
-	if ( iLen )
+	DWORD uLen = GetDword ();
+	if ( uLen )
 	{
-		char * sBuf = new char [ iLen ];
-		GetBytes ( sBuf, iLen );
-		sRes.SetBinary ( sBuf, iLen );
-		SafeDeleteArray ( sBuf );
+		sRes.Reserve ( uLen );
+		GetBytes ( (BYTE *) sRes.cstr (), uLen );
+	}
+
+	return sRes;
+}
+
+
+CSphString CSphReader::GetZString ()
+{
+	CSphString sRes;
+	auto uLen = UnzipOffset();
+	if ( uLen )
+	{
+		sRes.Reserve ( uLen );
+		GetBytes ( (BYTE *) sRes.cstr (), uLen );
 	}
 
 	return sRes;
@@ -723,6 +759,30 @@ void CSphWriter::Flush()
 }
 
 
+void CSphWriterNonThrottled::Flush ()
+{
+	if ( m_pSharedOffset && *m_pSharedOffset!=m_iDiskPos )
+	{
+		auto uMoved = sphSeek ( m_iFD, m_iDiskPos, SEEK_SET );
+		if ( uMoved!=m_iDiskPos )
+		{
+			m_bError = true;
+			return;
+		}
+	}
+
+	if ( !WriteNonThrottled ( m_iFD, m_pBuffer.get (), m_iPoolUsed, m_sName.cstr (), *m_pError ) )
+		m_bError = true;
+
+	m_iDiskPos += m_iPoolUsed;
+	m_iPoolUsed = 0;
+	m_pPool = m_pBuffer.get ();
+
+	if ( m_pSharedOffset )
+		*m_pSharedOffset = m_iDiskPos;
+}
+
+
 void CSphWriter::PutString ( const char * szString )
 {
 	int iLen = szString ? (int) strlen ( szString ) : 0;
@@ -738,6 +798,24 @@ void CSphWriter::PutString ( const CSphString & sString )
 	PutDword ( iLen );
 	if ( iLen )
 		PutBytes ( sString.cstr(), iLen );
+}
+
+
+void CSphWriter::PutZString ( const char * szString )
+{
+	int iLen = szString ? (int) strlen ( szString ) : 0;
+	ZipOffset ( iLen );
+	if ( iLen )
+		PutBytes ( szString, iLen );
+}
+
+
+void CSphWriter::PutZString ( const CSphString & sString )
+{
+	int iLen = sString.Length ();
+	ZipOffset ( iLen );
+	if ( iLen )
+		PutBytes ( sString.cstr (), iLen );
 }
 
 
@@ -796,13 +874,17 @@ void CSphWriter::SeekTo ( SphOffset_t iPos, bool bTruncate )
 //////////////////////////////////////////////////////////////////////////
 
 static int g_iIOpsDelay = 0;
-static int g_iMaxIOSize = 0;
+
+static const int g_iLimitIOSize = ( 1UL << 30 ); // same as write chunk limit 1GB:
+// on Linux, read()/write() will transfer at most 0x7ffff000 bytes (on both 32 and 64 bit systems).
+static int g_iMaxIOSize = g_iLimitIOSize;
+
 static std::atomic<int64_t> g_tmNextIOTime { 0 };
 
 void sphSetThrottling ( int iMaxIOps, int iMaxIOSize )
 {
 	g_iIOpsDelay = iMaxIOps ? 1000000 / iMaxIOps : iMaxIOps;
-	g_iMaxIOSize = iMaxIOSize;
+	g_iMaxIOSize = Clamp ( 1, g_iLimitIOSize, iMaxIOSize );
 }
 
 
@@ -834,6 +916,8 @@ bool sphWriteThrottled ( int iFD, const void* pBuf, int64_t iCount, const char* 
 		iChunkSize = Min ( iChunkSize, g_iMaxIOSize );
 
 	CSphIOStats* pIOStats = GetIOStats();
+	int64_t iTotalWritten = 0;
+	const int64_t iTotalCount = iCount;
 
 	// while there's data, write it chunk by chunk
 	auto* p = (const BYTE*)pBuf;
@@ -848,7 +932,7 @@ bool sphWriteThrottled ( int iFD, const void* pBuf, int64_t iCount, const char* 
 			tmTimer = sphMicroTimer();
 
 		auto iToWrite = (int)Min ( iCount, iChunkSize );
-		int iWritten = ::write ( iFD, p, iToWrite );
+		auto iWritten = (int)::write ( iFD, &p[iTotalWritten], iToWrite );
 
 		if ( pIOStats )
 		{
@@ -862,31 +946,78 @@ bool sphWriteThrottled ( int iFD, const void* pBuf, int64_t iCount, const char* 
 			return false;
 		}
 
-		// success? rinse, repeat
-		if ( iWritten == iToWrite )
+		// failure? report, bailout
+		if ( iWritten<0 )
 		{
-			iCount -= iToWrite;
-			p += iToWrite;
-			continue;
+			if ( iTotalWritten!=iTotalCount )
+				sError.SetSprintf ( "%s: write error: %s", sName, strerrorm ( errno ) );
+			else
+				sError.SetSprintf ( "%s: write error: %s; " INT64_FMT " of " INT64_FMT " bytes written", sName, strerrorm ( errno ), iTotalWritten, iTotalCount );
+			return false;
 		}
 
-		// failure? report, bailout
-		if ( iWritten < 0 )
-			sError.SetSprintf ( "%s: write error: %s", sName, strerrorm ( errno ) );
-		else
-			sError.SetSprintf ( "%s: write error: %d of %d bytes written", sName, iWritten, iToWrite );
-		return false;
+		// success? rinse, repeat
+		iCount -= iWritten;
+		iTotalWritten += iWritten;
 	}
 	return true;
 }
 
+
+bool WriteNonThrottled ( int iFD, const void * pBuf, int64_t iCount, const char * sName, CSphString & sError )
+{
+	if ( iCount<=0 )
+		return true;
+
+	CSphIOStats * pIOStats = GetIOStats ();
+	int64_t iTotalWritten = 0;
+	const int64_t iTotalCount = iCount;
+
+	// while there's data, write it chunk by chunk
+	auto * p = (const BYTE *) pBuf;
+	while ( iCount )
+	{
+		int64_t tmTimer = 0;
+		if ( pIOStats )
+			tmTimer = sphMicroTimer ();
+
+		auto iToWrite = (int) Min ( iCount, 1UL << 30 );
+		auto iWritten = (int) ::write ( iFD, &p[iTotalWritten], iToWrite );
+
+		if ( pIOStats )
+		{
+			pIOStats->m_iWriteTime += sphMicroTimer ()-tmTimer;
+			pIOStats->m_iWriteOps++;
+			pIOStats->m_iWriteBytes += iWritten;
+		}
+		if ( sphInterrupted () && iWritten!=iToWrite )
+		{
+			sError.SetSprintf ( "%s: write interrupted: %d of %d bytes written", sName, iWritten, iToWrite );
+			return false;
+		}
+		// failure? report, bailout
+		if ( iWritten<0 )
+		{
+			if ( iTotalWritten!=iTotalCount )
+				sError.SetSprintf ( "%s: write error: %s", sName, strerrorm ( errno ) );
+			else
+				sError.SetSprintf ( "%s: write error: %s; " INT64_FMT " of " INT64_FMT " bytes written", sName, strerrorm ( errno ), iTotalWritten, iTotalCount );
+			return false;
+		}
+
+		// success? rinse, repeat
+		iCount -= iWritten;
+		iTotalWritten += iWritten;
+	}
+	return true;
+}
 
 size_t sphReadThrottled ( int iFD, void* pBuf, size_t iCount )
 {
 	if ( iCount <= 0 )
 		return iCount;
 
-	auto iStep = g_iMaxIOSize ? Min ( iCount, (size_t)g_iMaxIOSize ) : iCount;
+	auto iStep = Min ( iCount, (size_t)g_iMaxIOSize ); // Now always 0 < g_iMaxIOSize < 1 GB
 	auto* p = (BYTE*)pBuf;
 	size_t nBytesToRead = iCount;
 	while ( iCount && !sphInterrupted() )

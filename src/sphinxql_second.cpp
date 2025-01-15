@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2021-2023, Manticore Software LTD (https://manticoresearch.com)
+// Copyright (c) 2021-2024, Manticore Software LTD (https://manticoresearch.com)
 // Copyright (c) 2001-2016, Andrew Aksyonoff
 // Copyright (c) 2008-2016, Sphinx Technologies Inc
 // All rights reserved
@@ -40,8 +40,8 @@ public:
 		return sResult;
 	}
 
-	void SetStatement ( const SqlNode_t& tName, SqlSet_e eSet );
-	void SetIndex ( const SqlNode_t& tNode ) const;
+	void SetStatement ( const SqlNode_t & tName, SqlSet_e eSet );
+	void SetStatement ( const SqlNode_t & tName, SqlSet_e eSet, int iValuesIdx );
 };
 
 void SqlSecondParser_c::SetStatement ( const SqlNode_t& tName, SqlSet_e eSet )
@@ -51,20 +51,27 @@ void SqlSecondParser_c::SetStatement ( const SqlNode_t& tName, SqlSet_e eSet )
 	ToString ( m_pStmt->m_sSetName, tName );
 }
 
-void SqlSecondParser_c::SetIndex ( const SqlNode_t& tNode ) const
+
+void SqlSecondParser_c::SetStatement ( const SqlNode_t & tName, SqlSet_e eSet, int iValuesIdx )
 {
-	ToString ( m_pStmt->m_sIndex, tNode );
-	// unquote index name
-	if ( ( tNode.m_iEnd - tNode.m_iStart ) > 2 && m_pStmt->m_sIndex.cstr()[0] == '\'' && m_pStmt->m_sIndex.cstr()[tNode.m_iEnd - tNode.m_iStart - 1] == '\'' )
-		m_pStmt->m_sIndex = m_pStmt->m_sIndex.SubString ( 1, m_pStmt->m_sIndex.Length() - 2 );
+	SetStatement ( tName, eSet );
+	
+	auto & dSV = m_pStmt->m_dSetValues;
+	const auto& dValues = GetMvaVec ( iValuesIdx );
+	dSV.Resize ( dValues.GetLength() );
+	ARRAY_FOREACH ( i, dValues )
+		dSV[i] = dValues[i].m_iValue;
 }
 
-#define YYSTYPE SqlNode_t
+using YYSTYPE = SqlNode_t;
+STATIC_ASSERT ( IS_TRIVIALLY_COPYABLE ( SqlNode_t ), YYSTYPE_MUST_BE_TRIVIAL_FOR_RESIZABLE_PARSER_STACK );
+# define YYSTYPE_IS_TRIVIAL 1
+# define YYSTYPE_IS_DECLARED 1
 
 // unused parameter, simply to avoid type clash between all my yylex() functions
 #define YY_DECL inline int flex_secondparser ( YYSTYPE* lvalp, void* yyscanner, SqlSecondParser_c* pParser )
 
-#include "flexsphinxqlsecond.c"
+#include "flexsphinxql_second.c"
 
 static void yyerror ( SqlParserTraits_c* pParser, const char* szMessage )
 {

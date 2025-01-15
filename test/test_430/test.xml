@@ -177,12 +177,6 @@ show meta;
 select title from META:all where match('two') and property='Ten';
 show meta;
 
-select title from META:all where match('two') and property='Ten' /*+ OptimizeFulltextFilters */;
-show meta;
-
-select title from META:all where match('two') and property='Ten' /*+ NO_OptimizeFulltextFilters */;
-show meta;
-
 select brand_id from test_col where price&gt;500 and brand_id&gt;5;
 show meta;
 select brand_id from test_col where price&gt;500 and brand_id&gt;5 /*+ NO_ColumnarScan(price,brand_id) */;
@@ -191,6 +185,8 @@ show meta;
 select groupby(), count(*) from META:all group by price,brand_id;
 
 select groupby(), count(*) from META:all group by coeff;
+
+select brand_id as b, count(*) FROM META:all GROUP BY b;
 </sphinxql></queries>
 
 </test>

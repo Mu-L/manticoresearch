@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2021-2023, Manticore Software LTD (https://manticoresearch.com)
+// Copyright (c) 2021-2024, Manticore Software LTD (https://manticoresearch.com)
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -39,11 +39,13 @@ SphAttr_t SetColumnarAttr ( int iAttr, ESphAttr eType, columnar::Builder_i * pBu
 	{
 	case SPH_ATTR_UINT32SET:
 	case SPH_ATTR_INT64SET:
+	case SPH_ATTR_FLOAT_VECTOR:
 	{
 		const BYTE * pResult = nullptr;
 		int iBytes = pIterator->Get ( tRowID, pResult );
-		int iValues = iBytes / ( eType==SPH_ATTR_UINT32SET ? sizeof(DWORD) : sizeof(int64_t) );
-		if ( eType==SPH_ATTR_UINT32SET )
+		bool b32Bits = eType==SPH_ATTR_UINT32SET || eType==SPH_ATTR_FLOAT_VECTOR;
+		int iValues = iBytes / (  b32Bits ? sizeof(DWORD) : sizeof(int64_t) );
+		if ( b32Bits )
 		{
 			// need a 64-bit array as input. so we need to convert our 32-bit array to 64-bit entries
 			dTmp.Resize(iValues);
@@ -94,6 +96,36 @@ void SetDefaultColumnarAttr ( int iAttr, ESphAttr eType, columnar::Builder_i * p
 		pBuilder->SetAttr ( iAttr, 0 );
 		break;
 	}
+}
+
+
+CSphString ColumnarAttrType2Str ( common::AttrType_e eType )
+{
+	switch ( eType )
+	{
+	case common::AttrType_e::NONE:		return "none";
+	case common::AttrType_e::UINT32:	return "uint32";
+	case common::AttrType_e::TIMESTAMP:	return "timestamp";
+	case common::AttrType_e::INT64:		return "int64";
+	case common::AttrType_e::UINT64:	return "uint64";
+	case common::AttrType_e::BOOLEAN:	return "boolean";
+	case common::AttrType_e::FLOAT:		return "float";
+	case common::AttrType_e::STRING:	return "string";
+	case common::AttrType_e::UINT32SET:	return "uint32set";
+	case common::AttrType_e::INT64SET:	return "int64set";
+	case common::AttrType_e::FLOATVEC:	return "floatvec";
+	default:							return "unknown";
+	}
+}
+
+
+PlainOrColumnar_t::PlainOrColumnar_t ( const CSphColumnInfo & tAttr, int iColumnar )
+{
+	m_eType = tAttr.m_eAttrType;
+	if ( tAttr.IsColumnar() )
+		m_iColumnarId = iColumnar;
+	else
+		m_tLocator = tAttr.m_tLocator;
 }
 
 

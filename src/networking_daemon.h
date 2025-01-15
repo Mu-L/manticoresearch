@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2017-2023, Manticore Software LTD (https://manticoresearch.com)
+// Copyright (c) 2017-2024, Manticore Software LTD (https://manticoresearch.com)
 // Copyright (c) 2001-2016, Andrew Aksyonoff
 // Copyright (c) 2008-2016, Sphinx Technologies Inc
 // All rights reserved
@@ -139,8 +139,8 @@ protected:
 	/// iSpace limits max quantity of data (limited by g_iMaxPacketSize), however m.b. ignored by compressed backends
 	int				AppendData ( int iNeed, int iSpace, bool bIntr );
 
-	/// internal - return place available to not exceed iHardLimit. Dispose consumed data, if necesary.
-	int				GetRoomForTail ( int iHardLimit );
+	/// internal - return place available to not exceed m_iMaxPacketSize. Dispose consumed data, if necesary.
+	int			GetRoomForTail();
 
 	/// internal - discard processed data, then ensure at least iSpace is available, and return blob for it.
 	/// ReadFromBackend on return will process results right way, nothing will be lost or ignored.
@@ -153,8 +153,7 @@ public:
 	int				ReadAny ();
 
 	/// try to peek first bytes from socket and imagine proto from this
-	/// @param bLight determines whether just look to existing (buffered) data, or also query socket, if no such data.
-	Proto_e			Probe ( bool bLight );
+	Proto_e			Probe ();
 
 	/// Ensure we have iLen bytes available in buffer. If not - read new chunk from backend.
 	/// return true on success
@@ -171,7 +170,7 @@ public:
 	bool			IsIntr () const { return m_bIntr; }
 
 	/// look what is in buf, but NOT pop
-	ByteBlob_t 		Tail ();
+	ByteBlob_t 		Tail () const noexcept;
 
 	/// take part or whole unused content of the buf
 	ByteBlob_t		PopTail ( int iSize=-1 );

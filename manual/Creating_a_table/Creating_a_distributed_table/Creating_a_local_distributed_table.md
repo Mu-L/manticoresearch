@@ -36,7 +36,7 @@ $params = [
             ]
         ]
     ],
-    'index' => 'products'
+    'table' => 'products'
 ];
 $index = new \Manticoresearch\Index($client);
 $index->create($params);
@@ -50,7 +50,7 @@ $index->create($params);
 utilsApi.sql('CREATE TABLE local_dist type=\'distributed\' local=\'index1\' local=\'index2\'')
 ```
 <!-- intro -->
-##### javascript:
+##### Javascript:
 
 <!-- request javascript -->
 
