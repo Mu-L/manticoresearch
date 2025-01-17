@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2017-2023, Manticore Software LTD (https://manticoresearch.com)
+// Copyright (c) 2017-2024, Manticore Software LTD (https://manticoresearch.com)
 // Copyright (c) 2001-2016, Andrew Aksyonoff
 // Copyright (c) 2008-2016, Sphinx Technologies Inc
 // All rights reserved
@@ -31,5 +31,8 @@ constexpr int sphLog2const ( long long iValue );
 int sphLog2 ( int iValue );
 int sphLog2 ( long iValue );
 int sphLog2 ( long long iValue );
+
+int GetLeadingZeroBits ( uint32_t uValue );
+int GetLeadingZeroBits ( uint64_t uValue );
 
 #include "log2_impl.h"

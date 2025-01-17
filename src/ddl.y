@@ -8,6 +8,13 @@
 #pragma GCC diagnostic ignored "-Wfree-nonheap-object"
 #pragma GCC diagnostic ignored "-Wunused-but-set-variable"
 #endif
+
+#define TRACK_BOUNDS(_res,_left,_right) \
+	_res = _left; \
+	if ( _res.m_iStart>0 && pParser->m_pBuf[_res.m_iStart-1]=='`' ) \
+		_res.m_iStart--; \
+	_res.m_iEnd = _right.m_iEnd; \
+	_res.m_iType = 0;
 %}
 
 %lex-param		{ DdlParser_c * pParser }
@@ -15,10 +22,11 @@
 %pure-parser
 %error-verbose
 
-%token	TOK_IDENT
-%token	TOK_CONST_FLOAT
-%token	TOK_CONST_INT
-%token	TOK_QUOTED_STRING
+%token	TOK_IDENT "identifier"
+%token	TOK_TABLEIDENT "tablename"
+%token	TOK_CONST_FLOAT "float"
+%token	TOK_CONST_INT "integer"
+%token	TOK_QUOTED_STRING "string"
 
 %token	TOK_ADD
 %token	TOK_ALTER
@@ -38,9 +46,13 @@
 %token	TOK_EXISTS
 %token	TOK_FAST_FETCH
 %token	TOK_FLOAT
+%token	TOK_FLOAT_VECTOR
 %token	TOK_FROM
 %token	TOK_FUNCTION
 %token	TOK_HASH
+%token	TOK_HNSW_EF_CONSTRUCTION
+%token	TOK_HNSW_M
+%token	TOK_HNSW_SIMILARITY
 %token	TOK_IF
 %token	TOK_IMPORT
 %token	TOK_INDEXED
@@ -49,9 +61,12 @@
 %token	TOK_JOIN
 %token	TOK_JSON
 %token	TOK_KILLLIST_TARGET
+%token	TOK_KNN_DIMS
+%token	TOK_KNN_TYPE
 %token	TOK_LIKE
 %token	TOK_MULTI
 %token	TOK_MULTI64
+%token	TOK_MODIFY
 %token	TOK_NOT
 %token	TOK_PLUGIN
 %token	TOK_REBUILD
@@ -59,6 +74,7 @@
 %token	TOK_RETURNS
 %token	TOK_RTINDEX
 %token	TOK_SECONDARY
+%token	TOK_SECONDARY_INDEX
 %token	TOK_SONAME
 %token	TOK_STORED
 %token	TOK_STRING
@@ -89,9 +105,20 @@ statement:
 	| import_table
 	;
 
+tablename:
+	TOK_TABLEIDENT
+	| TOK_MODIFY
+	;
+
+ident_without_modify:
+	TOK_TABLEIDENT
+	| TOK_IDENT
+    | TOK_TYPE
+    ;
+
 ident:
-	TOK_IDENT
-	| TOK_TYPE
+	ident_without_modify
+	| TOK_MODIFY
 	;
 
 text_or_string:
@@ -110,6 +137,23 @@ attribute_type:
 	| TOK_INT		{ $$.SetValueInt ( SPH_ATTR_INTEGER ); }
 	| TOK_UINT		{ $$.SetValueInt ( SPH_ATTR_INTEGER ); }
 	| TOK_TIMESTAMP	{ $$.SetValueInt ( SPH_ATTR_TIMESTAMP ); }
+	| TOK_FLOAT_VECTOR { $$.SetValueInt ( SPH_ATTR_FLOAT_VECTOR ); }
+	;
+
+list_of_tables:
+	| tablename ',' tablename
+		{
+    		TRACK_BOUNDS ( $$, $1, $3 );
+    	}
+	| list_of_tables ',' tablename
+		{
+			TRACK_BOUNDS ( $$, $1, $3 );
+		}
+	;
+
+table_or_tables:
+	tablename
+	| list_of_tables
 	;
 	
 //////////////////////////////////////////////////////////////////////////
@@ -121,7 +165,7 @@ alter_col_type:
 	;
 
 alter:
-	TOK_ALTER TOK_TABLE ident TOK_ADD TOK_COLUMN ident alter_col_type item_option_list
+	TOK_ALTER TOK_TABLE tablename TOK_ADD TOK_COLUMN ident alter_col_type item_option_list
 		{
 			if ( !pParser->SetupAlterTable ( $3, $6, $7 ) )
 			{
@@ -129,7 +173,15 @@ alter:
 	            YYERROR;
 			}
 		}
-	| TOK_ALTER TOK_TABLE ident TOK_ADD TOK_COLUMN ident TOK_BIT '(' TOK_CONST_INT ')' item_option_list
+	| TOK_ALTER TOK_TABLE tablename TOK_MODIFY TOK_COLUMN ident alter_col_type item_option_list
+		{
+			if ( !pParser->SetupAlterTable ( $3, $6, $7, true ) )
+			{
+				yyerror ( pParser, pParser->GetLastError() );
+				YYERROR;
+			}
+		}
+	| TOK_ALTER TOK_TABLE tablename TOK_ADD TOK_COLUMN ident TOK_BIT '(' TOK_CONST_INT ')' item_option_list
 		{
 			if ( !pParser->SetupAlterTable ( $3, $6, SPH_ATTR_INTEGER, 0, $9.GetValueInt() ) )
 			{
@@ -137,60 +189,60 @@ alter:
 	            YYERROR;
 			}
 		}
-	| TOK_ALTER TOK_TABLE ident TOK_DROP TOK_COLUMN ident
+	| TOK_ALTER TOK_TABLE tablename TOK_DROP TOK_COLUMN ident
 		{
 			SqlStmt_t & tStmt = *pParser->m_pStmt;
 			tStmt.m_eStmt = STMT_ALTER_DROP;
 			pParser->ToString ( tStmt.m_sIndex, $3 );
 			pParser->ToString ( tStmt.m_sAlterAttr, $6 );
 		}
-	| TOK_ALTER TOK_RTINDEX ident TOK_RECONFIGURE
+	| TOK_ALTER TOK_RTINDEX tablename TOK_RECONFIGURE
 		{
 			SqlStmt_t & tStmt = *pParser->m_pStmt;
 			tStmt.m_eStmt = STMT_ALTER_RECONFIGURE;
 			pParser->ToString ( tStmt.m_sIndex, $3 );
 		}
-	| TOK_ALTER TOK_TABLE ident TOK_RECONFIGURE
+	| TOK_ALTER TOK_TABLE tablename TOK_RECONFIGURE
 		{
 			SqlStmt_t & tStmt = *pParser->m_pStmt;
 			tStmt.m_eStmt = STMT_ALTER_RECONFIGURE;
 			pParser->ToString ( tStmt.m_sIndex, $3 );
 		}
-	| TOK_ALTER TOK_TABLE ident TOK_KILLLIST_TARGET '=' TOK_QUOTED_STRING
+	| TOK_ALTER TOK_TABLE tablename TOK_KILLLIST_TARGET '=' TOK_QUOTED_STRING
 		{
 			SqlStmt_t & tStmt = *pParser->m_pStmt;
 			tStmt.m_eStmt = STMT_ALTER_KLIST_TARGET;
 			pParser->ToString ( tStmt.m_sIndex, $3 );
 			pParser->ToString ( tStmt.m_sAlterOption, $6 ).Unquote();
 		}
-	| TOK_ALTER TOK_TABLE ident create_table_option_list
+	| TOK_ALTER TOK_TABLE tablename create_table_option_list
 		{
 			SqlStmt_t & tStmt = *pParser->m_pStmt;
 			tStmt.m_eStmt = STMT_ALTER_INDEX_SETTINGS;
 			pParser->ToString ( tStmt.m_sIndex, $3 );
 		}
-	| TOK_ALTER TOK_CLUSTER ident TOK_ADD ident
+	| TOK_ALTER TOK_CLUSTER ident TOK_ADD table_or_tables
 		{
 			SqlStmt_t & tStmt = *pParser->m_pStmt;
 			tStmt.m_eStmt = STMT_CLUSTER_ALTER_ADD;
 			pParser->ToString ( tStmt.m_sCluster, $3 );
 			pParser->ToString ( tStmt.m_sIndex, $5 );
 		}
-	| TOK_ALTER TOK_CLUSTER ident TOK_DROP ident
+	| TOK_ALTER TOK_CLUSTER ident TOK_DROP table_or_tables
 		{
 			SqlStmt_t & tStmt = *pParser->m_pStmt;
 			tStmt.m_eStmt = STMT_CLUSTER_ALTER_DROP;
 			pParser->ToString ( tStmt.m_sCluster, $3 );
 			pParser->ToString ( tStmt.m_sIndex, $5 );
 		}
-	| TOK_ALTER TOK_CLUSTER ident TOK_UPDATE ident
+	| TOK_ALTER TOK_CLUSTER ident TOK_UPDATE tablename
 		{
 			SqlStmt_t & tStmt = *pParser->m_pStmt;
 			tStmt.m_eStmt = STMT_CLUSTER_ALTER_UPDATE;
 			pParser->ToString ( tStmt.m_sCluster, $3 );
 			pParser->ToString ( tStmt.m_sSetName, $5 );
 		}
-	| TOK_ALTER TOK_TABLE ident TOK_REBUILD TOK_SECONDARY
+	| TOK_ALTER TOK_TABLE tablename TOK_REBUILD TOK_SECONDARY
 		{
 			SqlStmt_t & tStmt = *pParser->m_pStmt;
 			tStmt.m_eStmt = STMT_ALTER_REBUILD_SI;
@@ -236,6 +288,54 @@ item_option:
     	    	YYERROR;
 			}
 		}
+	| TOK_KNN_TYPE '=' TOK_QUOTED_STRING
+		{
+			if ( !pParser->AddItemOptionKNNType ( $3 ) )
+			{
+				yyerror ( pParser, pParser->GetLastError() );
+    	    	YYERROR;
+			}
+		}
+	| TOK_KNN_DIMS '=' TOK_QUOTED_STRING
+		{
+			if ( !pParser->AddItemOptionKNNDims ( $3 ) )
+			{
+				yyerror ( pParser, pParser->GetLastError() );
+    	    	YYERROR;
+			}
+		}
+	| TOK_HNSW_SIMILARITY '=' TOK_QUOTED_STRING
+		{
+			if ( !pParser->AddItemOptionHNSWSimilarity ( $3 ) )
+			{
+				yyerror ( pParser, pParser->GetLastError() );
+    	    	YYERROR;
+			}
+		}
+	| TOK_HNSW_M '=' TOK_QUOTED_STRING
+		{
+			if ( !pParser->AddItemOptionHNSWM ( $3 ) )
+			{
+				yyerror ( pParser, pParser->GetLastError() );
+    	    	YYERROR;
+			}
+		}
+	| TOK_HNSW_EF_CONSTRUCTION '=' TOK_QUOTED_STRING
+		{
+			if ( !pParser->AddItemOptionHNSWEfConstruction ( $3 ) )
+			{
+				yyerror ( pParser, pParser->GetLastError() );
+    	    	YYERROR;
+			}
+		}
+	| TOK_SECONDARY_INDEX '=' TOK_QUOTED_STRING
+		{
+			if ( !pParser->AddItemOptionIndexed ( $3 ) )
+			{
+				yyerror ( pParser, pParser->GetLastError() );
+    	    	YYERROR;
+			}
+		}
 	;
 
 item_option_list:
@@ -274,7 +374,7 @@ create_table_items:
 	;
 
 create_table_option:
-	ident '=' TOK_QUOTED_STRING			{ pParser->AddCreateTableOption ( $1, $3 ); }
+	ident_without_modify '=' TOK_QUOTED_STRING			{ pParser->AddCreateTableOption ( $1, $3 ); }
 	| TOK_ENGINE '=' TOK_QUOTED_STRING	{ pParser->AddCreateTableOption ( $1, $3 ); }
 	;
 
@@ -283,63 +383,44 @@ create_table_option_list:
 	| create_table_option_list create_table_option
 	;
 
+_if_not_exists:
+	// empty
+	| TOK_IF TOK_NOT TOK_EXISTS			{ pParser->m_pStmt->m_tCreateTable.m_bIfNotExists = true; }
+	;
+
+_if_exists:
+	// empty
+	| TOK_IF TOK_EXISTS			{ pParser->m_pStmt->m_bIfExists = true; }
+	;
+
 create_table:
-	TOK_CREATE TOK_TABLE ident create_table_items create_table_option_list
+	TOK_CREATE TOK_TABLE _if_not_exists tablename create_table_items create_table_option_list
 		{
 			SqlStmt_t & tStmt = *pParser->m_pStmt;
 			tStmt.m_eStmt = STMT_CREATE_TABLE;
-			tStmt.m_tCreateTable.m_bIfNotExists = false;
-			pParser->ToString ( tStmt.m_sIndex, $3 );
-			tStmt.m_sIndex.ToLower();
-		}
-	| TOK_CREATE TOK_TABLE TOK_IF TOK_NOT TOK_EXISTS ident create_table_items create_table_option_list
-		{
-			SqlStmt_t & tStmt = *pParser->m_pStmt;
-			tStmt.m_eStmt = STMT_CREATE_TABLE;
-			tStmt.m_tCreateTable.m_bIfNotExists = true;
-			pParser->ToString ( tStmt.m_sIndex, $6 );
+			pParser->ToString ( tStmt.m_sIndex, $4 );
 			tStmt.m_sIndex.ToLower();
 		}
 	;
 
 create_table_like:
-	TOK_CREATE TOK_TABLE ident TOK_LIKE ident
+	TOK_CREATE TOK_TABLE _if_not_exists tablename TOK_LIKE tablename
 		{
 			SqlStmt_t & tStmt = *pParser->m_pStmt;
 			tStmt.m_eStmt = STMT_CREATE_TABLE_LIKE;
-			tStmt.m_tCreateTable.m_bIfNotExists = false;
-			pParser->ToString ( tStmt.m_sIndex, $3 );
-			pParser->ToString ( tStmt.m_tCreateTable.m_sLike, $5 );
-			tStmt.m_sIndex.ToLower();
-			tStmt.m_tCreateTable.m_sLike.ToLower();
-		}
-	| TOK_CREATE TOK_TABLE TOK_IF TOK_NOT TOK_EXISTS ident TOK_LIKE ident
-		{
-			SqlStmt_t & tStmt = *pParser->m_pStmt;
-			tStmt.m_eStmt = STMT_CREATE_TABLE_LIKE;
-			tStmt.m_tCreateTable.m_bIfNotExists = true;
-			pParser->ToString ( tStmt.m_sIndex, $6 );
-			pParser->ToString ( tStmt.m_tCreateTable.m_sLike, $8 );
+			pParser->ToString ( tStmt.m_sIndex, $4 );
+			pParser->ToString ( tStmt.m_tCreateTable.m_sLike, $6 );
 			tStmt.m_sIndex.ToLower();
 			tStmt.m_tCreateTable.m_sLike.ToLower();
 		}
 	;
 
 drop_table:
-	TOK_DROP TOK_TABLE ident
+	TOK_DROP TOK_TABLE _if_exists tablename
 		{
 			SqlStmt_t & tStmt = *pParser->m_pStmt;
 			tStmt.m_eStmt = STMT_DROP_TABLE;
-			tStmt.m_bIfExists = false;
-			pParser->ToString ( tStmt.m_sIndex, $3 );
-			tStmt.m_sIndex.ToLower();
-		}
-	| TOK_DROP TOK_TABLE TOK_IF TOK_EXISTS ident
-		{
-			SqlStmt_t & tStmt = *pParser->m_pStmt;
-			tStmt.m_eStmt = STMT_DROP_TABLE;
-			tStmt.m_bIfExists = true;
-			pParser->ToString ( tStmt.m_sIndex, $5 );
+			pParser->ToString ( tStmt.m_sIndex, $4 );
 			tStmt.m_sIndex.ToLower();
 		}
 	;
@@ -458,7 +539,7 @@ join_cluster:
 	;
 
 import_table:
-	TOK_IMPORT TOK_TABLE ident TOK_FROM TOK_QUOTED_STRING
+	TOK_IMPORT TOK_TABLE tablename TOK_FROM TOK_QUOTED_STRING
 		{
 			SqlStmt_t & tStmt = *pParser->m_pStmt;
 			tStmt.m_eStmt = STMT_IMPORT_TABLE;

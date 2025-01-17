@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2017-2023, Manticore Software LTD (https://manticoresearch.com)
+// Copyright (c) 2017-2024, Manticore Software LTD (https://manticoresearch.com)
 // Copyright (c) 2001-2016, Andrew Aksyonoff
 // Copyright (c) 2008-2016, Sphinx Technologies Inc
 // All rights reserved
@@ -46,6 +46,7 @@ enum ESphAttr
 	SPH_ATTR_JSON		= 12,			///< JSON subset; converted, packed, and stored as string
 	SPH_ATTR_DOUBLE		= 13,			///< floating point number (IEEE 64-bit)
 	SPH_ATTR_UINT64		= 14,			///< unsigned 64-bit integer
+	SPH_ATTR_FLOAT_VECTOR = 15,
 
 	SPH_ATTR_UINT32SET	= 0x40000001UL,	///< MVA, set of unsigned 32-bit integers
 	SPH_ATTR_INT64SET	= 0x40000002UL,	///< MVA, set of signed 64-bit integers
@@ -61,7 +62,8 @@ enum ESphAttr
 	SPH_ATTR_INT64SET_PTR,				// in-memory version of MVA64
 	SPH_ATTR_JSON_PTR,					// in-memory version of JSON
 	SPH_ATTR_JSON_FIELD_PTR,			// in-memory version of JSON_FIELD
-	SPH_ATTR_STORED_FIELD
+	SPH_ATTR_STORED_FIELD,
+	SPH_ATTR_FLOAT_VECTOR_PTR			// in-memory version of FLOAT_VECTOR
 };
 
 /// column evaluation stage
@@ -85,19 +87,25 @@ enum ESphExprCommand
 	SPH_EXPR_SET_QUERY,
 	SPH_EXPR_SET_EXTRA_DATA,
 	SPH_EXPR_GET_DEPENDENT_COLS,	///< used to determine proper evaluating stage
-	SPH_EXPR_UPDATE_DEPENDENT_COLS,
+	SPH_EXPR_GET_GEODIST_SETTINGS,
+	SPH_EXPR_GET_POLY2D_BBOX,
 	SPH_EXPR_GET_UDF,
 	SPH_EXPR_GET_STATEFUL_UDF,
 	SPH_EXPR_SET_COLUMNAR,
 	SPH_EXPR_SET_COLUMNAR_COL,
 	SPH_EXPR_GET_COLUMNAR_COL,
-	SPH_EXPR_SET_ITERATOR			///< set link between JsonIn expr and iterator
+	SPH_EXPR_SET_ITERATOR,			///< set link between JsonIn expr and iterator
+	SPH_EXPR_FORMAT_AS_TEXT,
+	SPH_EXPR_COLLECT_CONST_ARGS
 };
+
+class CSphFilterSettings;
+class SIContainer_c;
 
 /// expression evaluator
 /// can always be evaluated in floats using Eval()
 /// can sometimes be evaluated in integers using IntEval(), depending on type as returned from sphExprParse()
-struct ISphExpr : public ISphRefcountedMT
+class ISphExpr : public ISphRefcountedMT
 {
 public:
 	/// evaluate this expression for that match
@@ -164,6 +172,9 @@ public:
 
 	virtual bool IsJson ( bool & bConverted ) const { return false; }
 
+	/// setup a filter that works as this expression (if possible)
+	virtual bool SetupAsFilter ( CSphFilterSettings & tFilter, const ISphSchema & tSchema, const SIContainer_c & tSI ) const { return false; }
+
 	/// get expression hash (for query cache)
 	virtual uint64_t GetHash ( const ISphSchema & tSorterSchema, uint64_t uPrevHash, bool & bDisable ) = 0;
 
@@ -195,29 +206,36 @@ inline void FreeDataPtr ( const ISphExpr * pExpr, const void * pData )
 		FreeDataPtr ( *pExpr, pData );
 }
 
-/// set global behavior of grouping by day/week/month/year functions:
-/// if invoked true, params treated as UTC timestamps,
-/// and as local timestamps otherwise (default)
-void SetGroupingInUtcExpr ( bool bGroupingInUtc );
-
 /// named int/string variant
 /// used for named expression function arguments block
 /// ie. {..} part in, for example, BM25F(1.2, 0.8, {title=3}) call
+
+enum class VariantType_e
+{
+	EMPTY,
+	IDENT,
+	STRING,
+	BIGINT,
+	FLOAT
+};
+
 struct CSphNamedVariant
 {
 	CSphString		m_sKey;		///< key
 	CSphString		m_sValue;	///< value for strings, empty for ints
-	int				m_iValue;	///< value for ints
+	int64_t			m_iValue;	///< value for ints
+	float			m_fValue;
+
+	VariantType_e   m_eType = VariantType_e::EMPTY; 
 };
 
 
 /// string expression traits
-/// can never be evaluated in floats or integers, only StringEval() is allowed
 struct ISphStringExpr : public ISphExpr
 {
-	float		Eval ( const CSphMatch & ) const override { assert ( 0 && "one just does not simply evaluate a string as float" ); return 0; }
-	int			IntEval ( const CSphMatch & ) const override { assert ( 0 && "one just does not simply evaluate a string as int" ); return 0; }
-	int64_t		Int64Eval ( const CSphMatch & ) const override { assert ( 0 && "one just does not simply evaluate a string as bigint" ); return 0; }
+	float		Eval ( const CSphMatch & tMatch ) const final;
+	int			IntEval ( const CSphMatch & tMatch ) const final;
+	int64_t		Int64Eval ( const CSphMatch & tMatch ) const final;
 };
 
 /// hook to extend expressions
@@ -331,34 +349,32 @@ struct ExprParseArgs_t
 	bool *				m_pNeedDocIds = nullptr;
 };
 
-ISphExpr * sphExprParse ( const char * sExpr, const ISphSchema & tSchema, CSphString & sError, ExprParseArgs_t & tArgs );
+struct JoinArgs_t
+{
+	const ISphSchema &	m_tJoinedSchema;
+	CSphString 			m_sIndex1;
+	CSphString 			m_sIndex2;
 
+	JoinArgs_t ( const ISphSchema & tJoinedSchema, const CSphString & sIndex1, const CSphString & sIndex2 );
+};
+
+
+struct CommonFilterSettings_t;
+ISphExpr * sphExprParse ( const char * szExpr, const ISphSchema & tSchema, const CSphString * pJoinIdx, CSphString & sError, ExprParseArgs_t & tArgs );
 ISphExpr * sphJsonFieldConv ( ISphExpr * pExpr );
+ISphExpr * ExprJsonIn ( const VecTraits_T<CSphString> & dVals, ISphExpr * pArg, ESphCollation eCollation );
+ISphExpr * ExprJsonIn ( const VecTraits_T<int64_t> & dVals, ISphExpr * pArg, ESphCollation eCollation );
+ISphExpr * ExprJsonRange ( const CommonFilterSettings_t & tFilter, ISphExpr * pArg );
+void FetchAttrDependencies ( StrVec_t & dAttrNames, const ISphSchema & tSchema );
+bool CanAliasedExprSetupAsFilter ( const CSphFilterSettings & tFilter, bool & bExclude );
+void SetExprNodeEvalStackItemSize ( std::pair<int,int> tStack );
+void SetMaxExprNodeEvalStackItemSize ( std::pair<int, int> tStack );
+void SetExprNodeParseStackItemSize ( std::pair<int, int> tStack );
 
-void SetExprNodeStackItemSize ( int iCreateSize, int iEvalSize );
-
-//////////////////////////////////////////////////////////////////////////
-
-/// init tables used by our geodistance functions
-void GeodistInit();
-
-/// haversine sphere distance, radians
-float GeodistSphereRad ( float lat1, float lon1, float lat2, float lon2 );
-
-/// haversine sphere distance, degrees
-float GeodistSphereDeg ( float lat1, float lon1, float lat2, float lon2 );
-
-/// flat ellipsoid distance, degrees
-float GeodistFlatDeg ( float fLat1, float fLon1, float fLat2, float fLon2 );
-
-/// adaptive flat/haversine distance, degrees
-float GeodistAdaptiveDeg ( float lat1, float lon1, float lat2, float lon2 );
-
-/// adaptive flat/haversine distance, radians
-float GeodistAdaptiveRad ( float lat1, float lon1, float lat2, float lon2 );
-
-/// get geodist conversion coeff
-bool sphGeoDistanceUnit ( const char * szUnit, float & fCoeff );
+/// provide mysql version string
+namespace sphinxexpr {
+CSphString& MySQLVersion();
+}
 
 #endif // _sphinxexpr_
 

@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2021-2023, Manticore Software LTD (https://manticoresearch.com)
+// Copyright (c) 2021-2024, Manticore Software LTD (https://manticoresearch.com)
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -43,6 +43,7 @@ private:
 	bool m_bVip = false;
 	bool m_bReadOnly = false;
 	bool m_bKilled = false;
+	bool m_bBuddy = false;
 
 	// session variables - doesn't participate in render, used as connection-wide globals
 public:
@@ -51,15 +52,19 @@ public:
 	int m_iDesiredStack = -1;
 	int m_iTimeoutS = -1;
 	int m_iWTimeoutS = -1;
+	int64_t m_iMaxStackSize = Threads::GetMaxCoroStackSize();
 	bool m_bSqlQuoteShowCreate = false;
+	bool m_bQueryDisableLog = false;
 
 	ESphCollation m_eCollation { GlobalCollation () };
 	Profile_e			m_eProfile { Profile_e::NONE };
 	bool m_bPersistent = false;
 	RowBuffer_i * 		m_pSqlRowBuffer = nullptr;
-	void*				m_pSessionOpaque = nullptr;
+	void*				m_pSessionOpaque1 = nullptr;
+	void*				m_pSessionOpaque2 = nullptr;
 	static std::atomic<int> m_iClients;
 	static std::atomic<int> m_iVips;
+	static std::atomic<int> m_iBuddy;
 
 	Dispatcher::Template_t m_tBaseDispatcherTemplate;
 	Dispatcher::Template_t m_tPseudoShardingDispatcherTemplate;
@@ -93,6 +98,10 @@ public:
 	bool GetVip() const { return m_bVip; }
 	inline static int GetVips() { return m_iVips.load ( std::memory_order_relaxed ); }
 	inline static int GetClients() { return m_iClients.load ( std::memory_order_relaxed ); }
+
+	void SetBuddy ( bool bBuddy );
+	bool GetBuddy() const { return m_bBuddy; }
+	inline static int GetBuddyCount() { return m_iBuddy.load ( std::memory_order_relaxed ); }
 
 	void SetReadOnly ( bool bReadOnly ) { m_bReadOnly = bReadOnly; }
 	bool GetReadOnly() const { return m_bReadOnly; }
@@ -140,7 +149,7 @@ public:
 	ClientSession_c* GetClientSession();
 
 public:
-	static ClientTaskInfo_t& Info ( bool bStrict = false );
+	static ClientTaskInfo_t& Info ( bool bStrict = false ) noexcept;
 };
 
 inline bool operator== ( const ClientTaskInfo_t& lhs, const ClientTaskInfo_t& rhs )
@@ -176,10 +185,14 @@ namespace session {
 	inline int GetVips() { return ClientTaskInfo_t::GetVips(); }
 	inline int GetClients() { return ClientTaskInfo_t::GetClients(); }
 
+	inline bool GetBuddy() { return ClientTaskInfo_t::Info().GetBuddy(); }
+	inline int GetBuddyCount() { return ClientTaskInfo_t::GetBuddyCount(); }
+
 	inline void SetReadOnly ( bool bReadOnly ) { ClientTaskInfo_t::Info().SetReadOnly (bReadOnly); }
 	inline bool GetReadOnly() { return ClientTaskInfo_t::Info().GetReadOnly(); }
 
 	inline bool GetKilled() { return ClientTaskInfo_t::Info().GetKilled(); }
+	inline void SetKilled ( bool bKilled ) { ClientTaskInfo_t::Info().SetKilled(bKilled); }
 
 	inline void SetThrottlingPeriodMS ( int iThrottlingPeriodMS ) { ClientTaskInfo_t::Info().SetThrottlingPeriodMS ( iThrottlingPeriodMS ); }
 	inline int GetThrottlingPeriodMS () { return ClientTaskInfo_t::Info().GetThrottlingPeriodMS(); }
@@ -207,13 +220,18 @@ namespace session {
 	inline void SetPersistent ( bool bPersistent ) { ClientTaskInfo_t::Info().SetPersistent(bPersistent); }
 	inline bool GetPersistent () { return ClientTaskInfo_t::Info().GetPersistent(); }
 
+	inline void SetMaxStackSize ( int64_t iStackSize ) { ClientTaskInfo_t::Info().m_iMaxStackSize = iStackSize; }
+	inline int64_t GetMaxStackSize() noexcept { return ClientTaskInfo_t::Info().m_iMaxStackSize; }
+	
+	inline void SetQueryDisableLog () { ClientTaskInfo_t::Info().m_bQueryDisableLog = true; }
+	inline bool IsQueryLogDisabled () { return ClientTaskInfo_t::Info().m_bQueryDisableLog; }
 } // namespace session
 
 namespace myinfo {
 	// num of client tasks, not including vips
 	inline int CountClients ()
 	{
-		return session::GetClients() - session::GetVips();
+		return session::GetClients() - ( session::GetVips() + session::GetBuddyCount() );
 	}
 
 	// num of real tasks (that is mini-info + client-info)

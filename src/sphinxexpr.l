@@ -50,7 +50,7 @@
 %option perf-report
 
 DIGIT				[0-9]
-ALPHA				[a-zA-Z_]
+ALPHA				[a-zA-Z_@]
 ALNUM				[a-zA-Z_0-9]
 ID					{ALPHA}{ALNUM}*
 SPACE				[ \t\n\r]
@@ -108,9 +108,11 @@ EXP     			[eE]{SIGN}{INT}
 \>=			{ return TOK_GTE; }
 ==?			{ return TOK_EQ; }
 
-@{ID}		{ return pParser->ProcessAtRawToken(yytext,yyleng,lvalp); }
-{ALPHA}		|
-{ALPHA}{ALNUM}+	{ return pParser->ProcessRawToken ( yytext,yyleng,lvalp ); }
+{ALPHA} |
+{ALPHA}{ALNUM}+	{ lvalp->iTrailingBr = 0; return pParser->ProcessRawToken ( yytext,yyleng,lvalp ); }
+
+{ALPHA}{ALNUM}*/"("	{ lvalp->iTrailingBr = 1; return pParser->ProcessRawToken ( yytext,yyleng,lvalp ); }
+{ALPHA}{ALNUM}*{SPACE}+/"(" { lvalp->iTrailingBr = 2; return pParser->ProcessRawToken ( yytext,yyleng,lvalp ); }
 
 
 `	                { BEGIN (BACK); STRING_BEGIN; lvalp->iConst+=yyleng; } // ++ to skip backtick
@@ -126,6 +128,7 @@ EXP     			[eE]{SIGN}{INT}
 							BEGIN(INITIAL);
 							auto pText = pParser->m_sExpr.first + lvalp->iConst;
                             int iLen =  yytext + yyleng - pText - 1;
+                            lvalp->iTrailingBr = 0;
 							return pParser->ProcessRawToken (pText,iLen,lvalp);
 					}
 

@@ -3,6 +3,11 @@
 #pragma warning(push,1)
 #pragma warning(disable:4702) // unreachable code
 #endif
+
+#ifdef __GNUC__
+#pragma GCC diagnostic ignored "-Wfree-nonheap-object"
+#pragma GCC diagnostic ignored "-Wunused-but-set-variable"
+#endif
 %}
 
 %lex-param		{ class SqlExtraParser_c * pParser }
@@ -15,6 +20,8 @@
 %token	TOK_IDENT "identifier"
 %token	TOK_QUOTED_STRING "string"
 
+%token	TOK_CREATE
+%token	TOK_DATABASE
 %token	TOK_FIELDS
 %token	TOK_FLUSH
 %token	TOK_FROM
@@ -34,6 +41,7 @@
 %token	TOK_USE
 %token	TOK_WITH
 %token	TOK_WRITE
+%token	TOK_COMMENT
 
 %{
 
@@ -57,6 +65,8 @@ statement:
 	| savepoint_sp
 	| show_fields
 	| show_triggers
+	| create_database
+	| comments
 	;
 
 //////////////////////////////////////////////////////////////////////////
@@ -64,7 +74,7 @@ statement:
 ident:
 	TOK_FIELDS | TOK_FLUSH | TOK_FROM | TOK_LOCK | TOK_READ | TOK_RELOAD | TOK_SAVEPOINT
 	| TOK_SET | TOK_SHOW | TOK_TABLE | TOK_TABLES | TOK_UNLOCK | TOK_USE | TOK_WITH | TOK_IDENT
-	| TOK_TRIGGERS | TOK_LIKE
+	| TOK_TRIGGERS | TOK_LIKE | TOK_CREATE | TOK_DATABASE
 	; // no TOK_SESSION, no TOK_GLOBAL
 
 //////////////////////////////////////////////////////////////////////////
@@ -159,15 +169,28 @@ unlock_tables:
 //////////////////////////////////////////////////////////////////////////
 
 lock_tables:
-	TOK_LOCK TOK_TABLES ident read_or_write
+	TOK_LOCK TOK_TABLES list_locked
 		{
 			pParser->DefaultOk();
 		}
 	;
 
+list_locked:
+	lock_table
+	| list_locked ',' lock_table
+
+lock_table:
+	ident read_or_write opt_comment
+	;
+
 read_or_write:
 	TOK_READ
 	| TOK_WRITE
+	;
+
+opt_comment:
+	// empty
+	| comment
 	;
 
 //////////////////////////////////////////////////////////////////////////
@@ -213,6 +236,25 @@ like_filter:
 	| TOK_LIKE TOK_QUOTED_STRING		{ pParser->m_pStmt->m_sStringParam = pParser->ToStringUnescape ($2 ); }
 	;
 
+
+create_database:
+	TOK_CREATE TOK_DATABASE ident
+		{
+    		pParser->DefaultOk();
+    	}
+    ;
+
+comment:
+	TOK_COMMENT
+		{
+    		pParser->Comment($1);
+    	}
+    ;
+
+comments:
+	comments comment
+	| comment
+	;
 %%
 
 #if _WIN32

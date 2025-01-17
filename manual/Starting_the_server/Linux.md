@@ -1,14 +1,5 @@
 # Starting Manticore in Linux
 
-When Manticore Search is installed using DEB or RPM packages, the searchd process can be run and managed by the operating system's init system. Most Linux versions now use systemd, while older releases use SysV init.
-
-To check which init system your platform uses, run the following command:
-
-```shell
-ps --no-headers -o comm 1
-```
-This will display the name of the process that is running as the init process, which can be used to determine the init system in use.
-
 ### Starting and stopping using systemd
 
 After the installation the Manticore Search service is not started automatically. To start Manticore run the following command:
@@ -18,7 +9,6 @@ sudo systemctl start manticore
 ```
 
 To stop Manticore run the following command:
-
 
 ```shell
 sudo systemctl stop manticore
@@ -42,12 +32,10 @@ To make Manticore start at boot, run:
 sudo systemctl enable manticore
 ```
 
-If you still need the generator again, just install the Manticore packages again and it will recover the generator file.
-
 `searchd` process logs startup information in `systemd` journal. If `systemd` logging is enabled you can view the logged information with the following command:
 
 ```shell
-sudo journalctl --unit manticore
+sudo journalctl -u manticore
 ```
 
 ### Custom startup flags using systemd

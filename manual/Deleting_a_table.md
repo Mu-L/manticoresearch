@@ -45,7 +45,7 @@ POST /cli -d "DROP TABLE products"
 <!-- request PHP -->
 
 ```php
-$params = [ 'index' => 'products' ];
+$params = [ 'table' => 'products' ];
 
 $response = $client->indices()->drop($params);
 ```
@@ -74,7 +74,7 @@ utilsApi.sql('DROP TABLE products')
 {u'error': u'', u'total': 0, u'warning': u''}
 ```
 <!-- intro -->
-##### javascript:
+##### Javascript:
 
 <!-- request javascript -->
 
@@ -119,7 +119,7 @@ sqlresult = utilsApi.Sql("DROP TABLE products");
 Here is the syntax of the `DROP TABLE` statement in SQL:
 
 ```sql
-DROP TABLE [IF EXISTS] index_name
+DROP TABLE [IF EXISTS] table_name
 ```
 
 <!-- example drop-if-exists -->
@@ -153,7 +153,7 @@ POST /cli -d "DROP TABLE IF EXISTS products"
 ```php
 $params =
 [
-  'index' => 'products',
+  'table' => 'products',
   'body' => ['silent' => true]
 ];
 
@@ -173,7 +173,7 @@ utilsApi.sql('DROP TABLE IF EXISTS products')
 {u'error': u'', u'total': 0, u'warning': u''}
 ```
 <!-- intro -->
-##### javascript:
+##### Javascript:
 
 <!-- request javascript -->
 

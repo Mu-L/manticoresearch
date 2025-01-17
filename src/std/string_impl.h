@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2017-2023, Manticore Software LTD (https://manticoresearch.com)
+// Copyright (c) 2017-2024, Manticore Software LTD (https://manticoresearch.com)
 // Copyright (c) 2001-2016, Andrew Aksyonoff
 // Copyright (c) 2008-2016, Sphinx Technologies Inc
 // All rights reserved
@@ -37,6 +37,13 @@ inline bool StrEq ( Str_t l, const char * r )
 	if ( IsEmpty ( l ) || !r )
 		return ( ( !r && IsEmpty ( l ) ) || ( IsEmpty ( l ) && !*r ) );
 	return strncmp ( l.first, r, l.second ) == 0;
+}
+
+inline bool StrEqN ( Str_t l, const char* r )
+{
+	if ( IsEmpty ( l ) || !r )
+		return ( ( !r && IsEmpty ( l ) ) || ( IsEmpty ( l ) && !*r ) );
+	return strncasecmp ( l.first, r, l.second ) == 0;
 }
 
 inline Str_t FromStr ( const CSphString& sString ) noexcept
@@ -109,8 +116,8 @@ inline CSphString CSphString::SubString ( int iStart, int iCount ) const
 	auto iLen = (int)strlen ( m_sValue );
 	iCount = Min ( iLen - iStart, iCount );
 #endif
-	assert ( iStart >= 0 && iStart < iLen );
-	assert ( iCount > 0 );
+	assert ( iStart >= 0 && iStart <= iLen );
+	assert ( iCount >= 0 );
 	assert ( ( iStart + iCount ) <= iLen );
 
 	CSphString sRes;

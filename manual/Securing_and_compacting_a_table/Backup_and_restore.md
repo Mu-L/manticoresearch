@@ -1,6 +1,39 @@
-# Backup and restore
+# Backup and Restore
 
-It's crucial to regularly back up your tables to recover them in case of system crashes, hardware failure, or data corruption/loss. Backups are also necessary before upgrading to a new version of Manticore Search that changes the table format, and for transferring data to another system when migrating to a new server.
+Backing up your tables on a regular basis is essential for recovery in the event of system crashes, hardware failure, or data corruption/loss. It's also highly recommended to make backups before upgrading to a new Manticore Search version or running [ALTER TABLE](../Updating_table_schema_and_settings.md#Updating-table-schema-in-RT-mode).
+
+Backing up database systems can be done in two unique ways: logical and physical backups. Each of these methods has its pros and cons, which may vary based on the specific database environment and needs. Here, we'll delve into the distinction between these two types of backups.
+
+### Logical Backups
+
+Logical backups entail exporting the database schema and data as SQL statements or as data formats specific to the database. This backup form is typically readable by humans and can be employed to restore the database on various systems or database engines.
+
+Pros and cons of logical backups:
+- ➕ **Portability:** Logical backups are generally more portable than physical backups, as they can be used to restore the database on different hardware or operating systems.
+- ➕ **Flexibility:** Logical backups allow you to selectively restore specific tables, indexes, or other database objects.
+- ➕ **Compatibility:** Logical backups can be used to migrate data between different database management systems or versions, provided the target system supports the exported format or SQL statements.
+- ➖ **Slower Backup and Restore:** Logical backups can be slower than physical backups, as they require the database engine to convert the data into SQL statements or another export format.
+- ➖ **Increased System Load:** Creating logical backups can cause higher system load, as the process requires more CPU and memory resources to process and export the data.
+
+Manticore Search supports [mysqldump](../Securing_and_compacting_a_table/Backup_and_restore.md#Backup-and-restore-with-mysqldump) for logical backups.
+
+### Physical Backups
+
+Physical backups involve copying the raw data files and system files that comprise the database. This type of backup essentially creates a snapshot of the database's physical state at a given point in time.
+
+Pros and cons of physical backups:
+- ➕ **Speed:** Physical backups are usually faster than logical backups, as they involve copying raw data files directly from disk.
+- ➕ **Consistency:** Physical backups ensure a consistent backup of the entire database, as all related files are copied together.
+- ➕ **Lower System Load:** Creating physical backups generally places less load on the system compared to logical backups, as the process does not involve additional data processing.
+- ➖ **Portability:** Physical backups are typically less portable than logical backups, as they may be dependent on the specific hardware, operating system, or database engine configuration.
+- ➖ **Flexibility:** Physical backups do not allow for the selective restoration of specific database objects, as the backup contains the entire database's raw files.
+- ➖ **Compatibility:** Physical backups cannot be used to migrate data between different database management systems or versions, as the raw data files may not be compatible across different platforms or software.
+
+Manticore Search has [manticore-backup](../Securing_and_compacting_a_table/Backup_and_restore.md#Using-manticore-backup-command-line-tool) command line tool for physical backups.
+
+In summary, logical backups provide more flexibility, portability, and compatibility but can be slower and more resource-intensive, while physical backups are faster, more consistent, and less resource-intensive but may be limited in terms of portability and flexibility. The choice between these two backup methods will depend on your specific database environment, hardware, and requirements.
+
+## Using manticore-backup command line tool
 
 The `manticore-backup` tool, included in the official Manticore Search [packages](https://manticoresearch.com/install), automates the process of backing up tables for an instance running in [RT mode](../Read_this_first.md#Real-time-mode-vs-plain-mode).
 
@@ -30,7 +63,7 @@ manticore-backup --config=path/to/manticore.conf --backup-dir=backupdir
 
 <!-- response Example -->
 ```bash
-Copyright (c) 2023, Manticore Software LTD (https://manticoresearch.com)
+Copyright (c) 2023-2024, Manticore Software LTD (https://manticoresearch.com)
 
 Manticore config file: /etc/manticoresearch/manticore.conf
 Tables to backup: all tables
@@ -69,7 +102,7 @@ manticore-backup --backup-dir=/mnt/backup/ --tables=products
 
 <!-- response Example -->
 ```bash
-Copyright (c) 2023, Manticore Software LTD (https://manticoresearch.com)
+Copyright (c) 2023-2024, Manticore Software LTD (https://manticoresearch.com)
 
 Manticore config file: /etc/manticoresearch/manticore.conf
 Tables to backup: products
@@ -96,13 +129,15 @@ Manticore versions:
 ```
 <!-- end -->
 
-## Arguments
+### Arguments
 
 | Argument | Description |
 |-|-|
 | `--backup-dir=path` | This is the path to the backup directory where the backup will be stored. The directory must already exist. This argument is required and has no default value. On each backup run, manticore-backup will create a subdirectory in the provided directory with a timestamp in the name (`backup-[datetime]`), and will copy all required tables to it. So the `--backup-dir` is a container for all your backups, and it's safe to run the script multiple times.|
 | `--restore[=backup]` | Restore from `--backup-dir`. Just --restore lists available backups. `--restore=backup` will restore from `<--backup-dir>/backup`. |
-| `--config=/path/to/manticore.conf` | Path to Manticore config. This is optional. If it's not passed, a default one for your operating system will be used. It's used to get the host and port to communicate with the Manticore daemon. |
+| `--force` | Skip versions check on restore and gracefully restore the backup. |
+| `--disable-telemetry` | Pass this flag in case you want to disable sending anonymized metrics  to Manticore. You can also use environment variable TELEMETRY=0 |
+| `--config=/path/to/manticore.conf` | Path to the Manticore configuration. Optional. If not provided, a default configuration for your operating system will be used. Used to determine the host and port for communication with the Manticore daemon. The `manticore-backup` tool supports [dynamic configuration](../Server_settings/Scripted_configuration.md) files. You can specify the `--config` option multiple times if your configuration is spread across multiple files. |
 | `--tables=tbl1,tbl2, ...` | Semicolon-separated list of tables that you want to back up. To back up all tables, omit this argument. All the provided tables must exist in the Manticore instance you are backing up from, or the backup will fail. |
 | `--compress` | Whether the backed up files should be compressed. Not enabled by default. | optional |
 | `--unlock` | In rare cases when something goes wrong, tables can be left in a locked state. Use this argument to unlock them. |
@@ -113,7 +148,9 @@ Manticore versions:
 
 You can also back up your data through SQL by running the simple command `BACKUP TO /path/to/backup`.
 
-Note, this command is not supported in Windows yet.
+> NOTE: `BACKUP` is not supported in Windows. Consider using [mysqldump](../Securing_and_compacting_a_table/Backup_and_restore.md#Backup-and-restore-with-mysqldump) instead.
+
+> NOTE: `BACKUP` requires [Manticore Buddy](../Installation/Manticore_Buddy.md). If it doesn't work, make sure Buddy is installed.
 
 ### General syntax of BACKUP
 
@@ -158,7 +195,7 @@ When you use `manticore-backup` or the SQL `BACKUP` command, the `FREEZE` comman
 
 If backup fails or gets interrupted, the tool tries to unfreeze all the tables.
 
-## Restore
+## Restore by using manticore-backup tool
 
 <!-- example restore_list -->
 To restore a Manticore instance from a backup, use the `manticore-backup` command with the `--backup-dir` and `--restore` arguments. For example: `manticore-backup --backup-dir=/path/to/backups --restore`. If you don't provide any argument for `--restore`, it will simply list all the backups in the `--backup-dir`.
@@ -171,7 +208,7 @@ manticore-backup --backup-dir=/mnt/backup/ --restore
 <!-- response Example -->
 
 ```bash
-Copyright (c) 2023, Manticore Software LTD (https://manticoresearch.com)
+Copyright (c) 2023-2024, Manticore Software LTD (https://manticoresearch.com)
 
 Manticore config file:
 Backup dir: /tmp/
@@ -202,7 +239,7 @@ manticore-backup --backup-dir=/mnt/backup/ --restore=backup-20221007104044
 <!-- response Example -->
 
 ```bash
-Copyright (c) 2023, Manticore Software LTD (https://manticoresearch.com)
+Copyright (c) 2023-2024, Manticore Software LTD (https://manticoresearch.com)
 
 Manticore config file:
 Backup dir: /tmp/
@@ -222,5 +259,82 @@ Manticore config
 ```
 
 <!-- end -->
+
+## Backup and restore with mysqldump
+
+<!-- example mysqldump_backup -->
+
+> NOTE: some versions of `mysqldump` / `mariadb-dump` require [Manticore Buddy](../../Installation/Manticore_Buddy.md). If the dump isn't working, make sure Buddy is installed.
+
+To create a backup of your Manticore Search database, you can use the `mysqldump` command. We will use the default port and host in the examples.
+
+Note, `mysqldump` is supported only for real-time tables.
+
+<!-- request Basic -->
+```bash
+mysqldump -h0 -P9306 manticore > manticore_backup.sql
+mariadb-dump -h0 -P9306 manticore > manticore_backup.sql
+```
+
+Executing this command will produce a backup file named `manticore_backup.sql`. This file will hold all data and table schemas.
+
+<!-- request Replace mode -->
+```bash
+mysqldump -h0 -P9306 --replace --net-buffer-length=16m -etc manticore tbl > tbl.sql
+```
+
+This will produce a backup file `tbl.sql` with `replace` commands instead of `insert`, with column names retained in each batch. Documents will be batched up to 16 megabytes large. There will be no `drop`/`create table` commands. This is useful for full-text reindexation after changing tokenization settings.
+
+<!-- request Replication mode -->
+```bash
+mysqldump -etc --replace -h0 -P9306 -ucluster manticore cluster:tbl | mysql -P9306 -h0
+mariadb-dump -etc --replace -h0 -P9306 -ucluster manticore cluster:tbl | mysql -P9306 -h0
+```
+
+In this case, `mysqldump` will generate commands like `REPLACE INTO cluster:table ...`, which will be sent directly to the Manticore instance, resulting in the documents being reinserted.
+Use the `cluster` user and the `-t` flag to enable replication mode. See the details in the notes below.
+
+<!-- end -->
+
+<!-- example mysqldump_restore -->
+### Restore
+
+If you're looking to restore a Manticore Search database from a backup file, the mysql client is your tool of choice.
+
+Note, if you are restoring in [Plain mode](../Read_this_first.md#Real-time-mode-vs-plain-mode), you cannot drop and recreate tables directly. Therefore, you should:
+- Use `mysqldump` with the `-t` option to exclude `CREATE TABLE` statements from your backup.
+- Manually [TRUNCATE](../Emptying_a_table.md) the tables before proceeding with the restoration.
+
+<!-- request SQL -->
+```bash
+mysql -h0 -P9306 < manticore_backup.sql
+mariadb -h0 -P9306 < manticore_backup.sql
+```
+
+This command enables you to restore everything from the `manticore_backup.sql` file.
+<!-- end -->
+
+### Additional options
+
+Here are some more settings that can be used with mysqldump to tailor your backup:
+
+- `-t` skips `drop`/`create` table commands. Useful for full-text reindexation of a table after changing tokenization settings.
+- `--no-data`: This setting omits table data from the backup, resulting in a backup file that consists only of table schemas.
+- `--ignore-table=[database_name].[table_name]`: This option allows you to bypass a particular table during the backup operation. Note that the database name must be `manticore`.
+- `--replace` to perform `replace` instead of `insert`. Useful for full-text reindexation of a table after changing tokenization settings.
+- `--net-buffer-length=16M` to make batches up to 16 megabytes large for faster restoration.
+- `-e` to batch up documents. Useful for faster restoration.
+- `-c` to keep column names. Useful for reindexation of a table after changing its schema (e.g., changing field order).
+
+For a comprehensive list of settings and their thorough descriptions, kindly refer to the official [MySQL documentation](https://dev.mysql.com/doc/refman/8.0/en/mysqldump.html) or [MariaDB documentation](https://mariadb.com/kb/en/mariadb-dump/).
+
+### Notes
+
+* To create a dump in replication mode (where the dump includes `INSERT/REPLACE INTO <cluster_name>:<table_name>`):
+  - Use the `cluster` user. For example: `mysqldump -u cluster ...` or `mariadb-dump -u cluster ...`. You can change the username that enables replication mode for `mysqldump` by running `SET GLOBAL cluster_user = new_name`.
+  - Use the `-t` flag.
+  - When specifying a table in replication mode, you need to follow the `cluster_name:table_name` syntax. For example: `mysqldump -P9306 -h0 -t -ucluster manticore cluster:tbl`.
+* It's recommended to explicitly specify the `manticore` database when you plan to back up all databases, instead of using the `--all-databases` option.
+* Note that `mysqldump` does not support backing up distributed tables and cannot back up tables containing non-stored fields. For such cases, consider using `manticore-backup` or the `BACKUP` SQL command. If you have distributed tables, it is recommended to always specify the tables to be dumped.
 
 <!-- proofread -->

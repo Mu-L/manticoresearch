@@ -19,7 +19,8 @@ set ( GTESTS_SRC
 		gtests_strfmt.cpp
 		gtests_pqstuff.cpp
 		gtests_json.cpp
-		gtests_threadstuff.cpp )
+		gtests_threadstuff.cpp
+		gtests_wsrep.cpp )
 
 add_executable ( gmanticoretest ${GTESTS_SRC} )
 target_include_directories ( gmanticoretest PRIVATE "${MANTICORE_SOURCE_DIR}/src" )
@@ -43,8 +44,9 @@ GTEST_DISCOVER_TESTS ( gmanticoretest PROPERTIES LABELS GOOGLE )
 message ( STATUS "Discovered and added individual google-tests" )
 
 if (WIN32)
-	getruntime ( libs common )
-	getruntime ( libs indexer )
-	getruntime ( libs daemon )
+#	getruntime ( libs common )
+#	getruntime ( libs indexer )
+#	getruntime ( libs daemon )
 	add_custom_command ( TARGET gmanticoretest POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy ${libs} "$<TARGET_FILE_DIR:gmanticoretest>" VERBATIM )
+	message ( STATUS "Collected libs is ${libs}" )
 endif ()
