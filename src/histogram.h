@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2018-2023, Manticore Software LTD (https://manticoresearch.com)
+// Copyright (c) 2018-2024, Manticore Software LTD (https://manticoresearch.com)
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -26,9 +26,7 @@ enum HistogramType_e
 
 struct HistogramRset_t
 {
-	int64_t m_iTotal { 0 };
-	DWORD m_iCount { 0 };
-	float m_fRangeSize { 0.0f };
+	int64_t		m_iTotal = 0;
 };
 
 class Histogram_i
@@ -76,9 +74,10 @@ private:
 };
 
 
-std::unique_ptr<Histogram_i>	CreateHistogram ( const CSphString & sAttr, ESphAttr eAttrType, int iSize=0 );
-void			CreateHistograms ( HistogramContainer_c & tHistograms, CSphVector<PlainOrColumnar_t> & dAttrsForHistogram, const ISphSchema & tSchema );
-int64_t			EstimateFilterSelectivity ( const CSphFilterSettings & tSettings, const HistogramContainer_c * pHistogramContainer );
+std::unique_ptr<Histogram_i> CreateHistogram ( const CSphString & sAttr, ESphAttr eAttrType, int iSize=0 );
+
+void BuildCreateHistograms ( HistogramContainer_c & tHistograms, CSphVector<PlainOrColumnar_t> & dAttrsForHistogram, const ISphSchema & tSchema );
+void BuildStoreHistograms ( RowID_t tRowID, const CSphRowitem * pRow, const BYTE * pPool, CSphVector<ScopedTypedIterator_t> & dIterators, const CSphVector<PlainOrColumnar_t> & dAttrs, HistogramContainer_c & tHistograms );
 
 struct HistogramSource_t
 {

@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2017-2023, Manticore Software LTD (https://manticoresearch.com)
+// Copyright (c) 2017-2024, Manticore Software LTD (https://manticoresearch.com)
 // Copyright (c) 2001-2016, Andrew Aksyonoff
 // Copyright (c) 2008-2016, Sphinx Technologies Inc
 // All rights reserved
@@ -22,6 +22,8 @@
 #include "tokenizer/charset_definition_parser.h"
 #include "indexcheck.h"
 #include "secondarylib.h"
+#include "knnlib.h"
+#include "detail/indexlink.h"
 
 #include <ctime>
 
@@ -401,6 +403,8 @@ static bool BuildIDF ( const CSphString & sFilename, const StrVec_t & dFiles, CS
 	// write data
 	tWriter.PutBytes ( dEntries.Begin(), dEntries.GetLength()*sizeof(IDFWord_t) );
 
+	tWriter.CloseFile();
+
 	int tmWallMsec = (int)( ( sphMicroTimer() - tmStart )/1000 );
 	fprintf ( stdout, "finished in %d.%d sec\n", tmWallMsec/1000, (tmWallMsec/100)%10 );
 
@@ -532,6 +536,8 @@ static bool MergeIDF ( const CSphString & sFilename, const StrVec_t & dFiles, CS
 		if ( bEnd )
 			break;
 	}
+
+	tWriter.CloseFile ();
 
 	ARRAY_FOREACH ( i, dFiles )
 		SafeDeleteArray ( dBuffers[i] );
@@ -871,7 +877,7 @@ static void ApplyKilllists ( CSphConfig & hConf )
 
 		IndexInfo_t & tIndex = dIndexes[iIndex++];
 		tIndex.m_sName = tIndex_.first.cstr();
-		tIndex.m_sPath = hIndex["path"].cstr();
+		tIndex.m_sPath = RedirectToRealPath ( hIndex["path"].strval() );
 
 		IndexFiles_c tIndexFiles ( tIndex.m_sPath, tIndex.m_sName.cstr () );
 
@@ -1189,7 +1195,7 @@ static std::unique_ptr<CSphIndex> CreateIndex ( CSphConfig & hConf, CSphString s
 	} else
 	{
 		StringBuilder_c tPath;
-		tPath << hIndex["path"] << ( bRotate ? ".tmp" : nullptr );
+		tPath << RedirectToRealPath ( hIndex["path"].strval() ) << ( bRotate ? ".tmp" : nullptr );
 		return sphCreateIndexPhrase ( std::move ( sIndex ), (CSphString)tPath );
 	}
 
@@ -1198,6 +1204,7 @@ static std::unique_ptr<CSphIndex> CreateIndex ( CSphConfig & hConf, CSphString s
 
 static void PreallocIndex ( const char * szIndex, bool bStripPath, CSphIndex * pIndex )
 {
+	SetIndexFilenameBuilder ( CreateFilenameBuilder );
 	std::unique_ptr<FilenameBuilder_i> pFilenameBuilder = CreateFilenameBuilder ( szIndex );
 	StrVec_t dWarnings;
 	if ( !pIndex->Prealloc ( bStripPath, pFilenameBuilder.get(), dWarnings ) )
@@ -1207,16 +1214,37 @@ static void PreallocIndex ( const char * szIndex, bool bStripPath, CSphIndex * p
 		fprintf ( stdout, "WARNING: table %s: %s\n", szIndex, i.cstr() );
 }
 
+static void Init()
+{
+	// threads should be initialized before memory allocations
+	char cTopOfMainStack;
+	Threads::Init();
+	Threads::PrepareMainThread ( &cTopOfMainStack );
+	auto iThreads = GetNumLogicalCPUs();
+	//		iThreads = 1; // uncomment if want to run all coro tests in single thread
+	SetMaxChildrenThreads ( iThreads );
+	StartGlobalWorkPool();
+	WipeGlobalSchedulerOnShutdownAndFork();
+}
+
 int main ( int argc, char ** argv )
 {
-	CSphString sError, sErrorSI;
+	Init();
+	AT_SCOPE_EXIT ( []() { StopGlobalWorkPool(); });
+
+	CSphString sError, sErrorSI, sErrorKNN;
 	bool bColumnarError = !InitColumnar ( sError );
 	bool bSecondaryError = !InitSecondary ( sErrorSI );
+	bool bKNNError = !InitKNN ( sErrorKNN );
 
 	if ( bColumnarError )
 		fprintf ( stdout, "Error initializing columnar storage: %s", sError.cstr() );
+
 	if ( bSecondaryError )
 		fprintf ( stdout, "Error initializing secondary index: %s", sErrorSI.cstr() );
+
+	if ( bKNNError )
+		fprintf ( stdout, "Error initializing knn index: %s", sErrorKNN.cstr() );
 
 	if ( argc<=1 )
 	{
@@ -1479,12 +1507,14 @@ int main ( int argc, char ** argv )
 		if ( !pIndex )
 			sphDie ( "table '%s': failed to create (%s)", sIndex.cstr(), sError.cstr() );
 
-		pIndex->SetDebugCheck ( bCheckIdDups, iCheckChunk );
+		if ( g_eCommand!=IndextoolCmd_e::DUMPDOCIDS && g_eCommand!=IndextoolCmd_e::DUMPDICT )
+			pIndex->SetDebugCheck ( bCheckIdDups, iCheckChunk );
 
+		Threads::CallCoroutine ( [&] {
 		PreallocIndex ( sIndex.cstr(), bStripPath, pIndex.get() );
 
 		if ( g_eCommand==IndextoolCmd_e::MORPH )
-			break;
+			return;
 
 		if ( !(g_eCommand==IndextoolCmd_e::CHECK || g_eCommand==IndextoolCmd_e::EXTRACT ))
 			pIndex->Preread();
@@ -1505,6 +1535,7 @@ int main ( int argc, char ** argv )
 
 			pIndex->Setup ( tSettings );
 		}
+		});
 
 		break;
 	}
@@ -1530,7 +1561,7 @@ int main ( int argc, char ** argv )
 					sphDie ( "missing 'path' for table '%s'\n", sDumpHeader.cstr() );
 
 				sIndexName = sDumpHeader;
-				sDumpHeader.SetSprintf ( "%s.sph", hConf["index"][sDumpHeader]["path"].cstr() );
+				sDumpHeader.SetSprintf ( "%s.sph", RedirectToRealPath ( hConf["index"][sDumpHeader]["path"].strval() ).cstr() );
 			} else
 				fprintf ( stdout, "dumping header file '%s'...\n", sDumpHeader.cstr() );
 
@@ -1570,11 +1601,13 @@ int main ( int argc, char ** argv )
 
 				pIndex->Preread();
 			} else
+			{
 				fprintf ( stdout, "dumping dictionary for table '%s'...\n", sIndex.cstr() );
+			}
 
 			if ( bStats )
 				fprintf ( stdout, "total-documents: " INT64_FMT "\n", pIndex->GetStats().m_iTotalDocuments );
-			pIndex->DebugDumpDict ( stdout );
+			pIndex->DebugDumpDict ( stdout, false );
 			break;
 		}
 
@@ -1583,14 +1616,14 @@ int main ( int argc, char ** argv )
 			fprintf ( stdout, "checking table '%s'...\n", sIndex.cstr() );
 			{
 			std::unique_ptr<DebugCheckError_i> pReporter { MakeDebugCheckError ( stdout, ( g_eCommand == IndextoolCmd_e::CHECK ? nullptr : &iExtractDocid ) ) };
-				iCheckErrno = pIndex->DebugCheck ( *pReporter );
+				iCheckErrno = pIndex->DebugCheck ( *pReporter, nullptr );
 			}
 			if ( iCheckErrno )
 				return iCheckErrno;
 			if ( bRotate )
 			{
 				pIndex->Dealloc();
-				sNewIndex.SetSprintf ( "%s.new", hConf["index"][sIndex]["path"].cstr() );
+				sNewIndex.SetSprintf ( "%s.new", RedirectToRealPath ( hConf["index"][sIndex]["path"].strval() ).cstr() );
 				if ( !pIndex->Rename ( sNewIndex ) )
 					sphDie ( "table '%s': rotate failed: %s\n", sIndex.cstr(), pIndex->GetLastError().cstr() );
 			}
@@ -1638,7 +1671,13 @@ int main ( int argc, char ** argv )
 			sphDie ( "INTERNAL ERROR: unhandled command (id=%d)", (int)g_eCommand );
 	}
 
+	Threads::CallCoroutine ( [&] {
+		pIndex = nullptr; // need to reset index prior to release of the libraries
+	});
+
 	ShutdownColumnar();
+	ShutdownSecondary();
+	ShutdownKNN();
 
 	return 0;
 }

@@ -12,7 +12,7 @@ $sd_log				= "searchd.log";
 $sd_split_logs		= false; // if we want one log per agent, its easier to investigate problems!
 $sd_query_log		= "query.log";
 $sd_network_timeout	= 5;
-$sd_max_children	= 30;
+$sd_max_children	= 100;
 $sd_pid_file		= "searchd.pid";
 
 $agent_address		= "127.0.0.1";
@@ -37,6 +37,7 @@ $g_guesscached = false;
 $g_model	= false;
 $g_re2		= false;
 $g_icu		= false;
+$g_jieba	= false;
 $g_odbc     = false;
 $g_columnar_loaded = false;
 $g_strict	= false;
@@ -45,6 +46,9 @@ $g_usemarks = true; // that we mark the output of every test in the searchd.log 
 $g_strictverbose = false;
 $g_ssl = false;
 $g_secondary_loaded = false;
+$g_knn_loaded = false;
+$g_tzdata_loaded = false;
+$g_zlib		= false;
 
 $windows = isset($_SERVER["WINDIR"]) || isset($_SERVER["windir"]) || isset($_SERVER["HOMEDRIVE"]);
 $action_retries			= 100;
@@ -103,18 +107,22 @@ function LoadCachedGuesses ()
 function CacheGuesses ()
 {
 	global $g_locals;
-	global $g_re2, $g_icu, $g_odbc, $g_repli, $g_ssl, $g_columnar_loaded, $g_secondary_loaded;
+	global $g_re2, $g_icu, $g_jieba, $g_odbc, $g_repli, $g_ssl, $g_columnar_loaded, $g_secondary_loaded, $g_knn_loaded, $g_tzdata_loaded, $g_zlib;
 
 	$guessfile = $g_locals['scriptdir'].'guess.txt';
 
 	$text = "global \$g_guesscached; \$g_guesscached = true;\n";
 	if ( $g_re2 ) $text .= "global \$g_re2; \$g_re2 = true;\n";
 	if ( $g_icu ) $text .= "global \$g_icu; \$g_icu = true;\n";
+	if ( $g_jieba ) $text .= "global \$g_jieba; \$g_jieba = true;\n";
 	if ( $g_odbc ) $text .= "global \$g_odbc; \$g_odbc = true;\n";
 	if ( $g_repli ) $text .= "global \$g_repli; \$g_repli = true;\n";
 	if ( $g_ssl ) $text .= "global \$g_ssl; \$g_ssl = true;\n";
 	if ( $g_columnar_loaded ) $text .= "global \$g_columnar_loaded; \$g_columnar_loaded = true;\n";
     if ( $g_secondary_loaded ) $text .= "global \$g_secondary_loaded; \$g_secondary_loaded = true;\n";
+    if ( $g_knn_loaded ) $text .= "global \$g_knn_loaded; \$g_knn_loaded = true;\n";
+    if ( $g_tzdata_loaded ) $text .= "global \g_tzdata_loaded; \$g_tzdata_loaded = true;\n";
+    if ( $g_zlib ) $text .= "global \$g_zlib; \$g_zlib = true;\n";
 
 	file_put_contents ( $guessfile, $text );
 }
@@ -198,6 +206,12 @@ function GuessICU ()
     $g_icu = GuessFeature ( 'test_icu.conf','no ICU support compiled');
 }
 
+function GuessJieba ()
+{
+	global $g_jieba;
+    $g_jieba = GuessFeature ( 'test_jieba.conf','no Jieba support compiled');
+}
+
 function GuessODBC ()
 {
     global $g_odbc;
@@ -214,6 +228,18 @@ function GuessSecondary()
 {
     global $g_secondary_loaded;
     $g_secondary_loaded = GuessFeature ( 'test_columnar.conf','secondary library not loaded', ' (secondary ');
+}
+
+function GuessKNN()
+{
+    global $g_knn_loaded;
+    $g_knn_loaded = GuessFeature ( 'test_columnar.conf','knn library not loaded', ' (knn ');
+}
+
+function GuessTzData()
+{
+	global $g_tz_data_loaded;
+	$g_tz_data_loaded = strpos( file_get_contents( testdir("searchd.log"), 'Error initializing time zones' ) ) === false;
 }
 
 function GetVersion ()
@@ -253,6 +279,22 @@ function GuessSSL ()
 		if ( strpos ( $line, 'DWITH_SSL=1' ) !== false )
 		{
 			$g_ssl = true;
+			break;
+		}
+	}
+}
+
+function GuessZlib()
+{
+    global $g_zlib;
+    $zlib_on = 'DWITH_ZLIB=1';
+    
+	$banner = GetBanner();
+	foreach ( $banner as $line )
+	{
+		if ( strpos ( $line, $zlib_on ) !== false )
+		{
+			$g_zlib = true;
 			break;
 		}
 	}
@@ -324,6 +366,9 @@ function PublishLocals ( &$locals, $benchmark )
 
 	if ( isset($g_locals["icu_data_dir"]))
 		putenv("ICU_DATA_DIR=$g_locals[icu_data_dir]");
+
+	if ( isset($g_locals["jieba_data_dir"]))
+    	putenv("JIEBA_DATA_DIR=$g_locals[jieba_data_dir]");
 
 	if ( isset($g_locals["full_share_dir"]))
 		putenv("FULL_SHARE_DIR=$g_locals[full_share_dir]");

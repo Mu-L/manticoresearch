@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2017-2023, Manticore Software LTD (https://manticoresearch.com)
+// Copyright (c) 2017-2024, Manticore Software LTD (https://manticoresearch.com)
 // Copyright (c) 2001-2016, Andrew Aksyonoff
 // Copyright (c) 2008-2016, Sphinx Technologies Inc
 // All rights reserved
@@ -89,7 +89,7 @@ CSphString GET_GALERA_FULLPATH()
 	return sResult;
 }
 
-CSphString GET_COLUMNAR_FULLPATH()
+CSphString GetColumnarFullpath()
 {
 	CSphString sResult;
 	const char* szEnv = getenv ( "LIB_MANTICORE_COLUMNAR" );
@@ -97,10 +97,11 @@ CSphString GET_COLUMNAR_FULLPATH()
 		sResult = szEnv;
 	else
 		sResult.SetSprintf ( "%s/" LIB_MANTICORE_COLUMNAR, GET_MANTICORE_MODULES() );
+
 	return sResult;
 }
 
-CSphString GET_SECONDARY_FULLPATH()
+CSphString GetSecondaryFullpath()
 {
 	CSphString sResult;
 	const char* szEnv = getenv ( "LIB_MANTICORE_SECONDARY" );
@@ -108,40 +109,60 @@ CSphString GET_SECONDARY_FULLPATH()
 		sResult = szEnv;
 	else
 		sResult.SetSprintf ( "%s/" LIB_MANTICORE_SECONDARY, GET_MANTICORE_MODULES() );
+
+	return sResult;
+}
+
+CSphString GetKNNFullpath()
+{
+	CSphString sResult;
+	const char* szEnv = getenv ( "LIB_MANTICORE_KNN" );
+	if ( szEnv )
+		sResult = szEnv;
+	else
+		sResult.SetSprintf ( "%s/" LIB_MANTICORE_KNN, GET_MANTICORE_MODULES() );
+
 	return sResult;
 }
 
 
-CSphString GET_ICU_DATA_DIR()
+static CSphString GetSegmentationDataPath ( const char * szEnvVar, const char * szDir, const char * szMask )
 {
-	const char* szEnv = getenv ( "ICU_DATA_DIR" );
+	const char* szEnv = getenv(szEnvVar);
 	if ( szEnv )
 		return szEnv;
 
 #ifdef _WIN32
 	CSphString sPathToExe = GetPathOnly ( GetExecutablePath() );
 	CSphString sPathToData;
-	sPathToData.SetSprintf ( "%s/../share/icu/", sPathToExe.cstr() );
+	sPathToData.SetSprintf ( "%s/../share/%s/", sPathToExe.cstr(), szDir );
 	sPathToData = sphNormalizePath ( sPathToData );
 
 	CSphString sSearch;
-	sSearch.SetSprintf ( "%s/icudt*.dat", sPathToData.cstr(), sPathToExe.cstr() );
+	sSearch.SetSprintf ( "%s/%s", sPathToData.cstr(), szMask );
 
 	StrVec_t dFiles = FindFiles ( sSearch.cstr(), false );
 	if ( dFiles.GetLength() )
 		return sPathToData;
 #endif
 
-	CSphString sModulesPrefix;
-	if ( sModulesPrefix.IsEmpty() )
-	{
-		CSphString sInitModulesPrefix;
-		sInitModulesPrefix.SetSprintf ( "%s/icu", GET_FULL_SHARE_DIR() );
-		sModulesPrefix.Swap ( sInitModulesPrefix );
-	}
-
-	return sModulesPrefix;
+	CSphString sInitModulesPrefix;
+	sInitModulesPrefix.SetSprintf ( "%s/%s", GET_FULL_SHARE_DIR(), szDir );
+	return sInitModulesPrefix;
 }
+
+
+CSphString GetICUDataDir()
+{
+	return GetSegmentationDataPath ( "ICU_DATA_DIR", "icu", "icudt*.dat" );
+}
+
+
+CSphString GetJiebaDataDir()
+{
+	return GetSegmentationDataPath ( "JIEBA_DATA_DIR", "jieba", "*.utf8" );
+}
+
 
 const char* GET_MANTICORE_MODULES()
 {

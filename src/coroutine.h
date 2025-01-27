@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2017-2023, Manticore Software LTD (https://manticoresearch.com)
+// Copyright (c) 2017-2024, Manticore Software LTD (https://manticoresearch.com)
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -49,7 +49,7 @@ void CallCoroutine ( Handler fnHandler );
 bool CallCoroutineRes ( Predicate fnHandler );
 
 // start handler in coroutine, self (if any) or main scheduler, second-priority
-void StartJob ( Handler handler );
+void StartJob ( Handler handler, Scheduler_i * pScheduler = GlobalWorkPool() );
 
 // perform handler in custom stack
 // note: handler is called as linear routine, without scheduler.
@@ -253,7 +253,8 @@ void SetDefaultThrottlingPeriodMS ( int tmPeriodMs );
 // -1 means 'use value of tmThrotleTimeQuantumMs'
 // 0 means 'don't throttle'
 // any other positive expresses throttling interval in milliseconds
-void SetThrottlingPeriod ( int tmPeriodMs = -1 );
+void SetThrottlingPeriodMS ( int tmPeriodMs = -1 );
+void SetThrottlingPeriodUS ( int64_t tmPeriodUs );
 int64_t GetThrottlingPeriodUS();
 
 // check if we run > ThrottleQuantum since last resume, or since timer restart
@@ -261,15 +262,15 @@ bool RuntimeExceeded() noexcept;
 const int64_t& GetNextTimePointUS() noexcept;
 
 // common throttle action - keep crash query and reschedule. Timer will be re-engaged on resume
-void RescheduleAndKeepCrashQuery();
+void RescheduleAndKeepCrashQuery ( bool bVip = false ) noexcept;
 
 // just re-engage timer, without rescheduling
 void RestartRuntime() noexcept;
 
-inline void ThrottleAndKeepCrashQuery()
+inline void ThrottleAndKeepCrashQuery ( bool bVip = false ) noexcept
 {
 	if ( RuntimeExceeded() )
-		RescheduleAndKeepCrashQuery();
+		RescheduleAndKeepCrashQuery ( bVip );
 }
 
 // yield and reschedule after given period of time (in milliseconds)
@@ -317,7 +318,7 @@ public:
 // instead of real blocking it yield current coro, so, MUST be used only with coro context
 class CAPABILITY ( "mutex" ) RWLock_c: public ISphNoncopyable
 {
-	sph::Spinlock_c m_tInternalMutex {};
+	mutable sph::Spinlock_c m_tInternalMutex {};
 	WaitQueue_c m_tWaitRQueue {};
 	WaitQueue_c m_tWaitWQueue {};
 	DWORD m_uState { 0 }; // lower bit - w-locked, rest - N of r-locks with bias 2
@@ -327,6 +328,7 @@ public:
 	void WriteLock() ACQUIRE();
 	void ReadLock() ACQUIRE_SHARED();
 	void Unlock() UNLOCK_FUNCTION();
+	bool TestNextWlock() const noexcept;
 };
 
 class CAPABILITY ( "mutex" ) Mutex_c: public ISphNoncopyable

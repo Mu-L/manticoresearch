@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2017-2023, Manticore Software LTD (https://manticoresearch.com)
+// Copyright (c) 2017-2024, Manticore Software LTD (https://manticoresearch.com)
 // Copyright (c) 2001-2016, Andrew Aksyonoff
 // Copyright (c) 2008-2016, Sphinx Technologies Inc
 // All rights reserved
@@ -43,6 +43,18 @@ inline int sphLog2 ( unsigned long uValue )
 inline int sphLog2 ( unsigned long long uValue )
 {
 	return sphLog2const ( uValue );
+}
+
+inline int GetLeadingZeroBits ( uint32_t uValue )
+{
+	assert(uValue);
+	return __builtin_clz ( uValue );
+}
+
+inline int GetLeadingZeroBits ( uint64_t uValue )
+{
+	assert(uValue);
+	return __builtin_clzll ( uValue );
 }
 
 #else
@@ -104,6 +116,21 @@ inline int sphLog2 ( unsigned long long uValue )
 	return 1 + uRes;
 }
 
+inline int GetLeadingZeroBits ( uint32_t uValue )
+{
+	assert(uValue);
+	DWORD uRes;
+	BitScanReverse64 ( &uRes, uValue );
+	return 31 - uRes;
+}
+
+inline int GetLeadingZeroBits ( uint64_t uValue )
+{
+	assert(uValue);
+	DWORD uRes;
+	BitScanReverse64 ( &uRes, uValue );
+	return 63 - uRes;
+}
 
 #else
 

@@ -2,17 +2,16 @@ workflow:
   rules:
     - if: $CI_MERGE_REQUEST_ID
     - if: $CI_COMMIT_TAG
-    - if: $CI_COMMIT_BRANCH == "master" && $CI_COMMIT_TITLE != $DOCS_AUTOCOMMIT_TITLE
-    - if: $CI_COMMIT_BRANCH =~ /^manticore-.*$/ && $CI_COMMIT_TITLE != $DOCS_AUTOCOMMIT_TITLE
-    - if: $CI_COMMIT_BRANCH == "maintenance-release" && $CI_COMMIT_TITLE != $DOCS_AUTOCOMMIT_TITLE
+    - if: $CI_COMMIT_BRANCH == "master"
+    - if: $CI_COMMIT_BRANCH =~ /^manticore-.*$/
+    - if: $CI_COMMIT_BRANCH == "maintenance-release"
 
 # to skip ci add [ci skip] or [skip ci] in commit message in any capitalization,
 # or add param when pushing, as: git push -o ci.skip ...
 
 variables:
-  DOCS_AUTOCOMMIT_TITLE: 'Docs_examples_update'
-  DOCS_EXAMPLES_FILEPATH: 'build/test/examples.txt'
   VERBOSE: 1
+  UNITY_BUILD: 1
 
 stages:
   - mirroring
@@ -42,41 +41,6 @@ job_mirror:
     - git push -u github $CI_COMMIT_BRANCH
   cache: {}
 
-# ==================== .helper to work with documentation ======================
-.docs:
-  tags:
-    - docker
-    - privileged
-  image: manticoresearch/docs_autodeploy:latest
-  rules:
-    - if: $CI_COMMIT_BRANCH == "master"
-    - if: $CI_COMMIT_BRANCH =~ /^manticore-.*$/
-    - if: $CI_COMMIT_BRANCH == "maintenance-release"
-  variables:
-    DOCKER_HOST: tcp://docker:2375/
-    DOCKER_DRIVER: overlay2
-    RELEASE_FILENAME: latest_release_version
-    DOCS_ERRORS_DIR: build/docs/
-  services:
-    - docker:18.09.7-dind
-  before_script:
-    - export COMMIT_DIR="manual"
-    - export DEPLOY_TARGET="k8s"
-  script:
-    - sh /Deploy/autoupdate.sh $DEPLOY_TARGET $COMMIT_DIR $DOCS_ERRORS_DIR
-  artifacts:
-    when: always
-    paths:
-      - $DOCS_ERRORS_DIR
-  cache: { }
-
-# ==================== Deploy documentation ======================
-
-docs_deploy:
-  extends: [ .docs ]
-  stage: routines
-  needs: [ ]
-
 # ==================== .helper build ======================
 
 .build:
@@ -85,7 +49,7 @@ docs_deploy:
   needs: [ ]
   tags:
     - docker-free
-  image: manticoresearch/external_toolchain:clang15_cmake3263
+  image: manticoresearch/external_toolchain:vcpkg331_20250114
   variables:
     CACHEB: "../cache"
     DIAGNOSTIC: 1 # let's set it by default forever
@@ -118,7 +82,6 @@ docs_deploy:
       - build/src/indexer
       - build/src/indextool
       - build/src/searchd
-      - build/src/tests
       - build/src/gtests/gmanticoretest
       - build/config/*.c
       - build/config/*.h
@@ -155,7 +118,6 @@ docs_deploy:
       - build/test/test_*/report.*
       - build/test/error*.txt
       - build/test/searchd.log
-      - $DOCS_EXAMPLES_FILEPATH
   retry: 1
 
 
@@ -163,10 +125,13 @@ docs_deploy:
 
 simple_build:
   extends: [ .build ]
+  before_script:
+    - export CMAKE_TOOLCHAIN_FILE=$(pwd)/dist/build_dockers/cross/linux.cmake
   variables:
     CTEST_CMAKE_GENERATOR: "Unix Makefiles" # as Ninja fails with coverage
     CTEST_CONFIGURATION_TYPE: "Debug"
     WITH_COVERAGE: 1
+    UNITY_BUILD: 0
 
 simple_tests:
   extends: [ .tests ]
@@ -175,11 +140,14 @@ simple_tests:
     CTEST_CONFIGURATION_TYPE: "Debug"
     WITH_COVERAGE: 1
     NO_BUILD: 1
+    UNITY_BUILD: 0
 
 # ==================== Release build, then test ======================
 
 release_build:
   extends: [ .build ]
+  before_script:
+    - export CMAKE_TOOLCHAIN_FILE=$(pwd)/dist/build_dockers/cross/linux.cmake
 
 release_tests:
   extends: [ .tests ]
@@ -195,7 +163,8 @@ win_build:
   variables:
     DISTR: windows
     arch: x64
-    sysroot: roots_apr12
+    sysroot: roots_mysql83_jan17
+    boost: boost_80
     CTEST_CMAKE_GENERATOR: "Ninja Multi-Config"
     CTEST_CONFIGURATION_TYPE: Debug
   artifacts:
@@ -203,12 +172,11 @@ win_build:
       - build/xml
       - build/src/$CTEST_CONFIGURATION_TYPE/indexer.exe
       - build/src/$CTEST_CONFIGURATION_TYPE/searchd.exe
-      - build/src/$CTEST_CONFIGURATION_TYPE/tests.exe
       - build/src/gtests/$CTEST_CONFIGURATION_TYPE/gmanticoretest.exe
-      - build/usr
-# Commented out usually need, but not on our dev where everything is installed into system
-#      - build/src/$CTEST_CONFIGURATION_TYPE/*.dll
-#      - build/src/gtests/$CTEST_CONFIGURATION_TYPE/*.dll
+      - build/src/$CTEST_CONFIGURATION_TYPE/*.dll
+      - build/src/gtests/$CTEST_CONFIGURATION_TYPE/*.dll
+      - build/config/*.c
+      - build/config/*.h
   cache:
     key: win_test
 
@@ -223,6 +191,7 @@ win_tests:
     BOOST_ROOT: "x:/boost_1_75_0"
     CTEST_CMAKE_GENERATOR: "Visual Studio 16 2019"
     CTEST_CONFIGURATION_TYPE: Debug
+    CTEST_EXCLUDE_REGEX: "_466"
     NO_BUILD: 1
   script:
     - 'net use x: \\\\VBOXSRV\\shared'
@@ -235,7 +204,7 @@ win_tests:
     when: always
     paths:
       - build/xml
-      - build/test/test_*/report.txt
+      - build/test/test_*/report.*
       - build/test/error*.txt
       - build/test/searchd.log
   cache: { }
@@ -247,6 +216,8 @@ build_arm:
   extends: [ .build ]
   variables:
     arch: aarch64
+  before_script:
+    - export CMAKE_TOOLCHAIN_FILE=$(pwd)/dist/build_dockers/cross/linux.cmake
   script:
     - mkdir build && cd build
     - ctest -VV -S ../misc/ctest/justbuild.cmake -DCTEST_SOURCE_DIRECTORY=.. --no-compress-output
@@ -260,6 +231,8 @@ build_bsd:
   variables:
     DISTR: freebsd13
     boost: none
+  before_script:
+    - export CMAKE_TOOLCHAIN_FILE=$(pwd)/dist/build_dockers/cross/freebsd.cmake
   script:
     - mkdir build && cd build
     - ctest -VV -S ../misc/ctest/justbuild.cmake -DCTEST_SOURCE_DIRECTORY=.. --no-compress-output
@@ -287,26 +260,14 @@ convert_win_junit:
       junit: build/junit_tests.xml
   cache: {}
 
-# ==================== Check documentation examples ======================
-
-check_docs_examples:
-  extends: [ .docs ]
-  stage: publish
-  rules:
-    - !reference [ .docs, rules ]
-    - changes:
-      - "test/**/*"
-      - "manual/**/*.md"
-      when: always
-  needs:
-    - release_tests
-
 # ==================== Run secondary pipeline ======================
 
 deploy_hook:
   stage: hooks
   trigger:
     include: dist/gitlab-release.yml
+    forward:
+      pipeline_variables: true
   needs:
     - job: simple_tests
       artifacts: false

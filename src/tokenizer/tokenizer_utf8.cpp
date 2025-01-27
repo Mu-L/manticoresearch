@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2017-2023, Manticore Software LTD (https://manticoresearch.com)
+// Copyright (c) 2017-2024, Manticore Software LTD (https://manticoresearch.com)
 // Copyright (c) 2001-2016, Andrew Aksyonoff
 // Copyright (c) 2008-2016, Sphinx Technologies Inc
 // All rights reserved
@@ -22,8 +22,8 @@ class Tokenizer_UTF8_Base_c: public CSphTokenizerBase2
 public:
 	explicit Tokenizer_UTF8_Base_c ( bool bDefaultCharset );
 	void SetBuffer ( const BYTE* sBuffer, int iLength ) final;
-	int GetCodepointLength ( int iCode ) const final;
-	int GetMaxCodepointLength() const final
+	int GetCodepointLength ( int iCode ) const noexcept final;
+	int GetMaxCodepointLength() const noexcept final
 	{
 		return GetLowercaser().GetMaxCodepointLength();
 	}
@@ -56,7 +56,7 @@ void Tokenizer_UTF8_Base_c::SetBuffer ( const BYTE* sBuffer, int iLength )
 	m_bBoundary = m_bTokenBoundary = false;
 }
 
-int Tokenizer_UTF8_Base_c::GetCodepointLength ( int iCode ) const
+int Tokenizer_UTF8_Base_c::GetCodepointLength ( int iCode ) const noexcept
 {
 	if ( iCode < 128 )
 		return 1;
@@ -79,8 +79,9 @@ public:
 	explicit CSphTokenizer_UTF8 ( bool bDefaultCharset )
 		: Tokenizer_UTF8_Base_c ( bDefaultCharset )
 	{}
-	BYTE* GetToken() override;
-	TokenizerRefPtr_c Clone ( ESphTokenizerClone eMode ) const final;
+	BYTE * GetToken() override;
+	BYTE * GetTokenEscaped() override;
+	TokenizerRefPtr_c Clone ( ESphTokenizerClone eMode ) const noexcept final;
 };
 
 
@@ -94,12 +95,26 @@ BYTE* CSphTokenizer_UTF8<IS_QUERY>::GetToken()
 	m_bWasSynonym = false;
 
 	return m_bHasBlend
-				 ? DoGetToken<IS_QUERY, true>()
-				 : DoGetToken<IS_QUERY, false>();
+				 ? DoGetToken<IS_QUERY, true, false>()
+				 : DoGetToken<IS_QUERY, false, false>();
 }
 
 template<bool IS_QUERY>
-TokenizerRefPtr_c CSphTokenizer_UTF8<IS_QUERY>::Clone ( ESphTokenizerClone eMode ) const
+BYTE* CSphTokenizer_UTF8<IS_QUERY>::GetTokenEscaped()
+{
+	m_bWasSpecial = false;
+	m_bBlended = false;
+	m_iOvershortCount = 0;
+	m_bTokenBoundary = false;
+	m_bWasSynonym = false;
+
+	return m_bHasBlend
+				 ? DoGetToken<IS_QUERY, true, true>()
+				 : DoGetToken<IS_QUERY, false, true>();
+}
+
+template<bool IS_QUERY>
+TokenizerRefPtr_c CSphTokenizer_UTF8<IS_QUERY>::Clone ( ESphTokenizerClone eMode ) const noexcept
 {
 	CSphTokenizerBase* pClone;
 	if ( eMode != SPH_CLONE_INDEX )

@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2021-2023, Manticore Software LTD (https://manticoresearch.com)
+// Copyright (c) 2021-2024, Manticore Software LTD (https://manticoresearch.com)
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -28,6 +28,7 @@ CSphVector<ScopedTypedIterator_t> CreateAllColumnarIterators ( const columnar::C
 
 SphAttr_t	SetColumnarAttr ( int iAttr, ESphAttr eType, columnar::Builder_i * pBuilder, std::unique_ptr<columnar::Iterator_i> & pIterator, RowID_t tRowID, CSphVector<int64_t> & dTmp );
 void		SetDefaultColumnarAttr ( int iAttr, ESphAttr eType, columnar::Builder_i * pBuilder );
+CSphString	ColumnarAttrType2Str ( common::AttrType_e eType );
 
 struct PlainOrColumnar_t
 {
@@ -35,18 +36,16 @@ struct PlainOrColumnar_t
 	int				m_iColumnarId = -1;
 	ESphAttr		m_eType = SPH_ATTR_NONE;
 
+					PlainOrColumnar_t() = default;
+					PlainOrColumnar_t ( const CSphColumnInfo & tAttr, int iColumnar );
+
 	SphAttr_t		Get ( RowID_t tRowID, const CSphRowitem * pRow, CSphVector<ScopedTypedIterator_t> & dIterators ) const;
 	int				Get ( RowID_t tRowID, const CSphRowitem * pRow, const BYTE * pPool, CSphVector<ScopedTypedIterator_t> & dIterators, const uint8_t * & pData ) const;
 };
-
-class HistogramContainer_c;
-void BuildStoreHistograms ( RowID_t tRowID, const CSphRowitem * pRow, const BYTE * pPool, CSphVector<ScopedTypedIterator_t> & dIterators, const CSphVector<PlainOrColumnar_t> & dAttrs, HistogramContainer_c & tHistograms );
 
 namespace SI
 {
 	class Builder_i;
 }
-
-void BuilderStoreAttrs ( RowID_t tRowID, const CSphRowitem * pRow, const BYTE * pPool, CSphVector<ScopedTypedIterator_t> & dIterators, const CSphVector<PlainOrColumnar_t> & dAttrs, SI::Builder_i * pBuilder, CSphVector<int64_t> & dTmp );
 
 #endif // _columnarmisc_

@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2017-2023, Manticore Software LTD (https://manticoresearch.com)
+// Copyright (c) 2017-2024, Manticore Software LTD (https://manticoresearch.com)
 // Copyright (c) 2001-2016, Andrew Aksyonoff
 // Copyright (c) 2008-2016, Sphinx Technologies Inc
 // All rights reserved
@@ -378,12 +378,14 @@ int64_t Vector_T<T, POLICY, LIMIT, STORE>::AllocatedBytes() const
 
 /// filter unique
 template<typename T, class POLICY, class LIMIT, class STORE>
-void Vector_T<T, POLICY, LIMIT, STORE>::Uniq()
+void Vector_T<T, POLICY, LIMIT, STORE>::Uniq ( bool bSort )
 {
 	if ( !m_iCount )
 		return;
 
-	Sort();
+	if ( bSort )
+		Sort();
+
 	int64_t iLeft = sphUniq ( m_pData, m_iCount );
 	Shrink ( iLeft );
 }

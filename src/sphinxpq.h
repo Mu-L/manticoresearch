@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2017-2023, Manticore Software LTD (https://manticoresearch.com)
+// Copyright (c) 2017-2024, Manticore Software LTD (https://manticoresearch.com)
 // Copyright (c) 2001-2016, Andrew Aksyonoff
 // Copyright (c) 2008-2016, Sphinx Technologies Inc
 // All rights reserved
@@ -20,8 +20,8 @@
 #include "sphinxsearch.h"
 #include "sphinxrt.h"
 #include "searchdha.h"
-//#include "binlog.h"
 #include "accumulator.h"
+#include "querycontext.h"
 
 // stuff moved here from sphinxrt.h
 
@@ -106,14 +106,14 @@ void SetPercolateQueryParserFactory ( CreateQueryParser_fn * pCall );
 
 static const int PQ_META_VERSION_MAX = 255;
 
-void LoadStoredQuery ( const BYTE * pData, int iLen, StoredQueryDesc_t & tQuery );
+void LoadStoredQuery ( ByteBlob_t tData, StoredQueryDesc_t& tQuery );
 void LoadStoredQuery ( DWORD uVersion, StoredQueryDesc_t & tQuery, CSphReader & tReader );
 void LoadStoredQueryV6 ( DWORD uVersion, StoredQueryDesc_t & tQuery, CSphReader & tReader );
-void SaveStoredQuery ( const StoredQueryDesc_t & tQuery, CSphVector<BYTE> & dOut );
+void SaveStoredQuery ( const StoredQueryDesc_t & tQuery, MemoryWriter_c& tWriter );
 void SaveStoredQuery ( const StoredQueryDesc_t & tQuery, CSphWriter & tWriter );
-void LoadDeleteQuery ( const BYTE * pData, int iLen, CSphVector<int64_t> & dQueries, CSphString & sTags );
+void LoadDeleteQuery ( ByteBlob_t tData, CSphVector<int64_t>& dQueries, CSphString& sTags );
 void LoadDeleteQuery ( CSphVector<int64_t> & dQueries, CSphString & sTags, CSphReader & tReader );
-void SaveDeleteQuery ( const VecTraits_T<int64_t>& dQueries, const char * sTags, CSphVector<BYTE> & dOut );
+void SaveDeleteQuery ( const VecTraits_T<int64_t>& dQueries, const char * sTags, MemoryWriter_c& tWriter );
 void SaveDeleteQuery ( const VecTraits_T<int64_t>& dQueries, const char * sTags, CSphWriter & tWriter );
 
 //////////////////////////////////////////////////////////////////////////
@@ -127,7 +127,7 @@ struct DictTerm_t
 
 struct DictMap_t
 {
-	OpenHash_T<DictTerm_t, int64_t, HashFunc_Int64_t> m_hTerms { 0 };
+	OpenHashTable_T<int64_t, DictTerm_t> m_hTerms { 0 };
 	CSphFixedVector<BYTE> m_dKeywords { 0 };
 
 	SphWordID_t GetTerm ( BYTE * pWord ) const;
@@ -207,6 +207,7 @@ struct PQMatchContextResult_t
 	int m_iEarlyPassed = 0;
 	int m_iOnlyTerms = 0;
 	int m_iQueriesFailed = 0;
+	Warner_c m_dMsg;
 };
 
 struct PercolateMatchContext_t : public PQMatchContextResult_t
@@ -225,7 +226,7 @@ struct PercolateMatchContext_t : public PQMatchContextResult_t
 	const ISphSchema &m_tSchema;
 	const SegmentReject_t &m_tReject;
 	const bool m_bUtf8 = false;
-	Warner_c m_dMsg;
+	int64_t m_iMaxStackSize = session::GetMaxStackSize();
 
 	PercolateMatchContext_t ( const RtSegment_t * pSeg, int iMaxCodepointLength, bool bHasMorph, DictRefPtr_c pDictMorph, const PercolateIndex_i * pIndex, const ISphSchema & tSchema,
 			const SegmentReject_t & tReject, ESphHitless eHitless, bool bHasWideFields )

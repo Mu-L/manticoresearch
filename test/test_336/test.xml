@@ -12,6 +12,7 @@ searchd
 {
 	<searchd_settings/>
 	binlog_path =
+    collation_server = libc_cs	
 }
 
 source src1
@@ -63,6 +64,14 @@ index test_mva
 {
 	source				= test_mva
 	path				= <data_path/>/test_mva
+}
+
+index test_rt1
+{
+    type = rt
+    path = <data_path/>/rt1
+    rt_field = title
+	rt_attr_string = str_col
 }
 
 </config>
@@ -121,6 +130,7 @@ insert into test_rt values (3, '3rd', 'Bander, despite its paean to freedom, fou
 insert into test_rt values (4, '4th', 'There was no way it could speak to robots on a basis of intellectual equality, and certainly not to animals.', 14, 1.4, 'str4' );
 insert into test_rt values (5, '5th', 'To speak to its fellow-Solarians would be, to it, unpleasant, and what communication there must be would be forced, and never spontaneous.', 15, 1.5, 'str5' );
 insert into test_rt values (6, '6th', 'No wonder, Trevize thought, it was indulging itself in this way.', 16, 1.6, 'str6' );
+insert into test_rt1 values (101, '101th', 'STR' ), (102, '102th', 'str' );
 </sphinxql>
 <sphinxql>insert into test_bigint values (2333444556, '1st', 2333444556 ), (2333444554, '2nd', 2333444554 ), (140739821799884, '3d', 140739821799884 )</sphinxql>
 </queries>
@@ -128,7 +138,7 @@ insert into test_rt values (6, '6th', 'No wonder, Trevize thought, it was indulg
 <httpqueries>
 <query endpoint="json/search">
 {
-  "index":"META:all",
+  "table":"META:all",
   "query":
   {
     "bool":
@@ -144,7 +154,7 @@ insert into test_rt values (6, '6th', 'No wonder, Trevize thought, it was indulg
 </query>
 <query endpoint="json/search">
 {
-  "index":"META:all",
+  "table":"META:all",
   "query":
   {
     "bool":
@@ -160,7 +170,7 @@ insert into test_rt values (6, '6th', 'No wonder, Trevize thought, it was indulg
 </query>
 <query endpoint="json/search">
 {
-  "index":"META:all",
+  "table":"META:all",
   "query":
   {
     "bool":
@@ -176,7 +186,7 @@ insert into test_rt values (6, '6th', 'No wonder, Trevize thought, it was indulg
 </query>
 <query endpoint="json/search">
 {
-  "index":"META:all",
+  "table":"META:all",
   "query":
   {
     "bool":
@@ -193,7 +203,7 @@ insert into test_rt values (6, '6th', 'No wonder, Trevize thought, it was indulg
 
 <query endpoint="json/search">
 {
-  "index":"META:all",
+  "table":"META:all",
   "query":
   {
     "bool":
@@ -210,7 +220,7 @@ insert into test_rt values (6, '6th', 'No wonder, Trevize thought, it was indulg
 
 <query endpoint="json/search">
 {
-  "index":"META:all",
+  "table":"META:all",
   "query":
   {
     "bool":
@@ -227,7 +237,7 @@ insert into test_rt values (6, '6th', 'No wonder, Trevize thought, it was indulg
 
 <query endpoint="json/search">
 {
-  "index":"META:all",
+  "table":"META:all",
   "query":
   {
     "bool":
@@ -243,7 +253,7 @@ insert into test_rt values (6, '6th', 'No wonder, Trevize thought, it was indulg
 
 <query endpoint="json/search">
 {
-  "index":"META:all",
+  "table":"META:all",
   "query":
   {
     "range": { "int_col": { "lte": 11 } }
@@ -253,7 +263,7 @@ insert into test_rt values (6, '6th', 'No wonder, Trevize thought, it was indulg
 
 <query endpoint="json/search">
 {
-  "index":"META:all",
+  "table":"META:all",
   "query":
   {
     "bool":
@@ -269,7 +279,7 @@ insert into test_rt values (6, '6th', 'No wonder, Trevize thought, it was indulg
 
 <query endpoint="json/search">
 {
-  "index":"META:all",
+  "table":"META:all",
   "query":
   {
     "bool":
@@ -286,7 +296,7 @@ insert into test_rt values (6, '6th', 'No wonder, Trevize thought, it was indulg
 
 <query endpoint="json/search">
 {
-  "index":"META:all",
+  "table":"META:all",
   "query":
   {
     "bool":
@@ -303,7 +313,7 @@ insert into test_rt values (6, '6th', 'No wonder, Trevize thought, it was indulg
 
 <query endpoint="json/search">
 {
-  "index":"META:all",
+  "table":"META:all",
   "query":
   {
     "bool":
@@ -320,7 +330,7 @@ insert into test_rt values (6, '6th', 'No wonder, Trevize thought, it was indulg
 
 <query endpoint="json/search">
 {
-  "index":"META:all",
+  "table":"META:all",
   "query":
   {
     "bool":
@@ -337,7 +347,7 @@ insert into test_rt values (6, '6th', 'No wonder, Trevize thought, it was indulg
 
 <query endpoint="json/search">
 {
-  "index":"META:all",
+  "table":"META:all",
   "query":
   {
 	"equals": { "int_col": 12 }
@@ -347,7 +357,7 @@ insert into test_rt values (6, '6th', 'No wonder, Trevize thought, it was indulg
 
 <query endpoint="json/search">
 {
-  "index":"META:all",
+  "table":"META:all",
   "query":
   {
 	"equals": { "str_col": "str6" }
@@ -357,7 +367,7 @@ insert into test_rt values (6, '6th', 'No wonder, Trevize thought, it was indulg
 
 <query endpoint="json/search">
 {
-  "index":"META:all",
+  "table":"META:all",
   "query":
   {
     "bool":
@@ -374,7 +384,7 @@ insert into test_rt values (6, '6th', 'No wonder, Trevize thought, it was indulg
 
 <query endpoint="json/search">
 {
-  "index":"META:all",
+  "table":"META:all",
   "query":
   {
     "in": { "int_col": [11,13] }
@@ -385,7 +395,7 @@ insert into test_rt values (6, '6th', 'No wonder, Trevize thought, it was indulg
 
 <query endpoint="json/search">
 {
-  "index":"META:all",
+  "table":"META:all",
   "query":
   {
     "in": { "str_col": ["str4","str5"] }
@@ -396,20 +406,20 @@ insert into test_rt values (6, '6th', 'No wonder, Trevize thought, it was indulg
 <!-- regression all any MVA -->
 <query endpoint="json/search">
 {
-  "index":"test_mva",
+  "table":"test_mva",
   "query": { "equals": { "any(tags)": 1 } }
 }
 </query>
 <query endpoint="json/search">
 {
-  "index":"test_mva",
+  "table":"test_mva",
   "query": { "equals": { "all(tags)": 15 } }
 }
 </query>
 
 <query endpoint="json/search">
 {
-  "index":"test_mva",
+  "table":"test_mva",
   "query":
   {
     "bool":
@@ -424,20 +434,20 @@ insert into test_rt values (6, '6th', 'No wonder, Trevize thought, it was indulg
 </query>
 <query endpoint="json/search">
 {
-  "index":"test_mva",
+  "table":"test_mva",
   "query": { "in": { "any(tags)": [2,1,3] } }
 }
 </query>
 <query endpoint="json/search">
 {
-  "index":"test_mva",
+  "table":"test_mva",
   "query": { "in": { "all(tags)": [4,3,40] } }
 }
 </query>
 
 <query endpoint="json/search">
 {
-  "index":"META:all",
+  "table":"META:all",
   "query":
   {
     "bool":
@@ -452,20 +462,35 @@ insert into test_rt values (6, '6th', 'No wonder, Trevize thought, it was indulg
 </query>
 
 <query endpoint="json/search">
-{ "index":"test_bigint", "query": { "bool": { "must": [ { "range": { "id": { "gt": 2333444555 } } } ] } } }
+{ "table":"test_bigint", "query": { "bool": { "must": [ { "range": { "id": { "gt": 2333444555 } } } ] } } }
 </query>
 
 <query endpoint="json/search">
-{ "index":"test_bigint", "query": { "bool": { "must": [ { "range": { "id": { "lt": 2333444555 } } } ] } } }
+{ "table":"test_bigint", "query": { "bool": { "must": [ { "range": { "id": { "lt": 2333444555 } } } ] } } }
 </query>
 
 <query endpoint="json/search">
-{ "index":"test_bigint", "query": { "bool": { "must": [ { "range": { "id": { "gt": 140739821799883 } } } ] } } }
+{ "table":"test_bigint", "query": { "bool": { "must": [ { "range": { "id": { "gt": 140739821799883 } } } ] } } }
 </query>
 
 <query endpoint="json/search">
-{ "index":"test_bigint", "query": { "bool": { "must": [ { "range": { "id": { "lt": 140739821799885 } } } ] } } }
+{ "table":"test_bigint", "query": { "bool": { "must": [ { "range": { "id": { "lt": 140739821799885 } } } ] } } }
 </query>
+
+<!-- regression filter collation -->
+<query endpoint="json/search">
+{ "table":"test_rt1", "query": { "equals": {  "str_col": "str" } } }
+</query>
+<query endpoint="json/search">
+{ "table":"test_rt1", "query": { "equals": {  "str_col": "STR" } } }
+</query>
+
+<!-- lt lte gt gte vaiants of string comparsions -->
+<query endpoint="json/search">{ "table":"test1", "_source": { "includes":["id", "str_col"] }, "query": { "range": { "str_col": {"lt":"str2" } } } }</query>
+<query endpoint="json/search">{ "table":"test1", "_source": { "includes":["id", "str_col"] }, "query": { "range": { "str_col": {"lte":"str1" } } } }</query>
+<query endpoint="json/search">{ "table":"test1", "_source": { "includes":["id", "str_col"] }, "query": { "range": { "str_col": {"gt":"str5" } } } }</query>
+<query endpoint="json/search">{ "table":"test1", "_source": { "includes":["id", "str_col"] }, "query": { "range": { "str_col": {"gte":"str5" } } } }</query>
+<query endpoint="json/search">{ "table":"test1", "_source": { "includes":["id", "str_col"] }, "query": { "range": { "str_col": {"gte":"str2", "lt":"str5" } } } }</query>
 
 </httpqueries>
 

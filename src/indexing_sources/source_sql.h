@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2021-2023, Manticore Software LTD (https://manticoresearch.com)
+// Copyright (c) 2021-2024, Manticore Software LTD (https://manticoresearch.com)
 // Copyright (c) 2001-2016, Andrew Aksyonoff
 // Copyright (c) 2008-2016, Sphinx Technologies Inc
 // All rights reserved
@@ -24,14 +24,6 @@ enum ESphUnpackFormat
 	SPH_UNPACK_NONE				= 0,
 	SPH_UNPACK_ZLIB				= 1,
 	SPH_UNPACK_MYSQL_COMPRESS	= 2
-};
-
-struct SqlQuotator_t
-{
-	static constexpr BYTE EscapingSpace ( BYTE c )
-	{
-		return ( c == '\\' || c == '\'' || c == '\t' ) ? 1 : 0;
-	}
 };
 
 using SqlEscapedBuilder_c = EscapedStringBuilder_T<BaseQuotation_T<SqlQuotator_t>>;
@@ -65,6 +57,7 @@ struct CSphSourceParams_SQL
 	CSphString						m_sDumpRTIndex;
 
 	StrVec_t						m_dQueryPre;
+	StrVec_t						m_dQueryPreAll;
 	StrVec_t						m_dQueryPost;
 	StrVec_t						m_dQueryPostIndex;
 	CSphVector<CSphColumnInfo>		m_dAttrs;
@@ -108,7 +101,7 @@ struct CSphSource_SQL : CSphSource
 	void				PostIndex () override;
 
 	ISphHits *			IterateJoinedHits ( CSphReader & tReader, CSphString & sError ) override;
-	bool				FetchJoinedFields ( CSphAutofile & tFile, CSphVector<std::unique_ptr<OpenHash_T<uint64_t, uint64_t>>> & dJoinedOffsets, CSphString & sError ) override;
+	bool				FetchJoinedFields ( CSphAutofile & tFile, CSphVector<std::unique_ptr<OpenHashTable_T<uint64_t, uint64_t>>> & dJoinedOffsets, CSphString & sError ) override;
 
 	bool				IterateMultivaluedStart ( int iAttr, CSphString & sError ) override;
 	bool				IterateMultivaluedNext ( int64_t & iDocID, int64_t & iMvaValue ) override;
@@ -189,6 +182,8 @@ protected:
 
 	void					DumpDocument();
 	void					DumpDocumentSphinxql();
+
+	bool 					QueryPreAll ( CSphString& sError) ;
 
 private:
 	bool					m_bSqlConnected = false;	///< am i connected?

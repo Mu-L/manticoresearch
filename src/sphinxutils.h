@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2017-2023, Manticore Software LTD (https://manticoresearch.com)
+// Copyright (c) 2017-2024, Manticore Software LTD (https://manticoresearch.com)
 // Copyright (c) 2001-2016, Andrew Aksyonoff
 // Copyright (c) 2008-2016, Sphinx Technologies Inc
 // All rights reserved
@@ -27,6 +27,11 @@
 inline int sphIsAlpha ( int c )
 {
 	return ( c>='0' && c<='9' ) || ( c>='a' && c<='z' ) || ( c>='A' && c<='Z' ) || c=='-' || c=='_';
+}
+
+inline int sphIsAlphaOnly ( int c )
+{
+	return ( c>='0' && c<='9' ) || ( c>='a' && c<='z' ) || ( c>='A' && c<='Z' );
 }
 
 inline bool sphIsInteger ( char c )
@@ -73,6 +78,8 @@ inline bool sphIsWild ( T c )
 {
 	return c=='*' || c=='?' || c=='%';
 }
+
+bool HasWildcards ( const char * sWord );
 
 namespace sph {
 
@@ -133,8 +140,8 @@ namespace sph {
 
 	/// output fVal with arbitrary 6 or 8 digits
 	/// ensure that sBuffer has enough space to fit fVal!
-	int PrintVarFloat ( char* sBuffer, float fVal );
-	int PrintVarDouble ( char* sBuffer, double fVal );
+	int PrintVarFloat ( char* sBuffer, int iSize, float fVal );
+	int PrintVarDouble ( char* sBuffer, int iSize, double fVal );
 }
 
 /// string splitter, extracts sequences of alphas (as in sphIsAlpha)
@@ -165,7 +172,18 @@ int64_t sphGetSize64 ( const char * sValue, char ** ppErr = nullptr, int64_t iDe
 /// *ppErr, if provided, will point to parsing error, if any. By default scale is 's', seconds.
 int64_t sphGetTime64 ( const char* sValue, char** ppErr = nullptr, int64_t iDefault = -1 );
 
-int64_t GetUTC ( const CSphString & sTime, const CSphString & sFormat );
+int64_t GetUTC ( const CSphString & sTime, const char * sFormat=nullptr );
+bool ParseDateMath ( const CSphString & sMathExpr, int iNow, time_t & tDateTime );
+
+enum class DateUnit_e
+{
+	ms, sec, minute, hour, day, week, month, year,
+	total_units
+};
+void RoundDate ( DateUnit_e eUnit, time_t & tDateTime );
+void RoundDate ( DateUnit_e eUnit, int iMulti, time_t & tDateTime );
+std::pair<DateUnit_e, int> ParseDateInterval ( const CSphString & sExpr, bool bFixed, CSphString & sError );
+
 //////////////////////////////////////////////////////////////////////////
 
 namespace sph
@@ -200,11 +218,12 @@ namespace sph
 	SmallStringHash_T<CSphVariant> ParseKeyValueVars ( const char * sBuf );
 
 	template<typename FnFilter>
-	void ParseKeyValues ( const char * sBuf, FnFilter && fnFilter )
+	void ParseKeyValues ( const char * sBuf, FnFilter fnFilter, const char* szDelim = ",; \t\n\r" )
 	{
-		if ( sBuf && ( *sBuf ))
-		{
-			sph::Split ( sBuf, -1, ",; \t\n\r", [&] (const char* sToken, int iLen)
+		if ( !sBuf || ( !*sBuf ))
+			return;
+
+		sph::Split ( sBuf, -1, szDelim, [&] (const char* sToken, int iLen)
 			{
 				auto dOption = sphSplit ( sToken, iLen, "=" );
 				assert ( dOption.GetLength ()==2 ); // as 'key' = 'value'
@@ -212,7 +231,6 @@ namespace sph
 				fnFilter ( std::move ( dOption[0] ), std::move ( dOption[1] ));
 			});
 		}
-	}
 
 	/// zero-copy split by the given boundaries, result valid until sIn lives.
 	void Split ( StrtVec_t& dOut, const char* sIn, const char* sBounds );
@@ -423,11 +441,25 @@ const char * DoBacktrace ( int iDepth=0, int iSkip=0 );
 
 void sphCheckDuplicatePaths ( const CSphConfig & hConf );
 
+using FixPathAbsolute_fn = std::function<void ( CSphString & sPath )>;
+
 /// set globals from the common config section
-void sphConfigureCommon ( const CSphConfig & hConf );
+void sphConfigureCommon ( const CSphConfig & hConf, FixPathAbsolute_fn && fnPathFix = nullptr );
 
 /// my own is chinese
-bool sphIsChineseCode ( int iCode );
+FORCE_INLINE bool sphIsChineseCode ( int iCode )
+{
+	return ( ( iCode>=0x2E80 && iCode<=0x2EF3 ) ||	// CJK radicals
+		( iCode>=0x2F00 && iCode<=0x2FD5 ) ||	// Kangxi radicals
+		( iCode>=0x3000 && iCode<=0x303F ) ||	// CJK Symbols and Punctuation
+		( iCode>=0x3105 && iCode<=0x312D ) ||	// Bopomofo
+		( iCode>=0x31C0 && iCode<=0x31E3 ) ||	// CJK strokes
+		( iCode>=0x3400 && iCode<=0x4DB5 ) ||	// CJK Ideograph Extension A
+		( iCode>=0x4E00 && iCode<=0x9FFF ) ||	// Ideograph
+		( iCode>=0xF900 && iCode<=0xFAD9 ) ||	// compatibility ideographs
+		( iCode>=0xFF00 && iCode<=0xFFEF ) ||	// Halfwidth and fullwidth forms
+		( iCode>=0x20000 && iCode<=0x2FA1D ) );	// CJK Ideograph Extensions B/C/D, and compatibility ideographs
+}
 
 /// detect chinese chars in a buffer
 bool sphDetectChinese ( const BYTE * szBuffer, int iLength );
@@ -438,13 +470,15 @@ class CSphDynamicLibrary : public ISphNoncopyable
 	void *		m_pLibrary; // internal handle
 
 public:
-	explicit CSphDynamicLibrary ( const char* sPath );
+	explicit CSphDynamicLibrary ( const char* sPath, bool bGlobal=true );
+	void CSphDynamicLibraryAlternative ( const char* sPath, bool bGlobal = true );
 
 	// We are suppose, that library is loaded once when necessary, and will alive whole lifetime of utility.
 	// So, no need to explicitly desctruct it, this is intended leak.
 	~CSphDynamicLibrary ();
 
 	bool		LoadSymbols ( const char** sNames, void*** pppFuncs, int iNum );
+	inline void * GetLib() const noexcept { return m_pLibrary; }
 };
 
 /// collect warnings/errors from any suitable context.
@@ -505,6 +539,9 @@ namespace TlsMsg
 	// move error to given string, or leave it intact if no error
 	void MoveError( CSphString& sError );
 
+	// return error msg (if any) and reset buff
+	CSphString MoveToString();
+
 	// true if some error was reported.
 	bool HasErr();
 
@@ -521,6 +558,12 @@ namespace TlsMsg
 	};
 }
 
+/// link given var to be reported at scope exit
+#define TLS_MSG_CATCH( STR ) AT_SCOPE_EXIT ( [&STR] {if ( !STR.IsEmpty() ) TlsMsg::Err(STR); } )
+
+/// declare str var and link it to be reported
+#define TLS_MSG_STRING( STR ) CSphString STR; TLS_MSG_CATCH ( STR )
+
 // extract basename from path
 const char * GetBaseName ( const CSphString & sFullPath );
 bool HasMvaUpdated ( const CSphString & sIndexPath );
@@ -531,6 +574,7 @@ bool HasMvaUpdated ( const CSphString & sIndexPath );
 //	4		startup time of server in seconds
 //	3		increment base part
 int64_t	UidShort();
+int64_t GetIndexUid();
 
 // server - is server id used as iServer & 0x7f
 // started - is a server start time \ Unix timestamp in seconds
@@ -542,5 +586,10 @@ BYTE Pearson8 ( const BYTE * pBuf, int iLen );
 void		CheckWinInstall();
 CSphString	GetWinInstallDir();
 #endif
+
+
+void PauseAt ( const CSphString& sName, bool bPause );
+
+void PauseCheck ( const CSphString& sName );
 
 #endif // _sphinxutils_

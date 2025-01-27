@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2017-2023, Manticore Software LTD (https://manticoresearch.com)
+// Copyright (c) 2017-2024, Manticore Software LTD (https://manticoresearch.com)
 // Copyright (c) 2001-2016, Andrew Aksyonoff
 // Copyright (c) 2008-2016, Sphinx Technologies Inc
 // All rights reserved
@@ -20,31 +20,43 @@ template < typename T >
 class RefcountedVector_c : public CSphVector<T>, public ISphRefcountedMT
 {};
 
-using AttrValues_p = CSphRefcountedPtr < RefcountedVector_c<SphAttr_t> >;
+struct AttrValue_t
+{
+	int64_t m_iValue;
+	float	m_fValue;
+	bool	m_bFloat;
+
+	bool operator == ( const AttrValue_t & rhs ) const	{ return m_iValue==rhs.m_iValue && m_fValue==rhs.m_fValue && m_bFloat==rhs.m_bFloat; }
+	bool operator < ( const AttrValue_t & rhs ) const	{ return m_iValue<rhs.m_iValue; }
+};
+
+using AttrValues_p = CSphRefcountedPtr < RefcountedVector_c<AttrValue_t> >;
+using AttrValueVec_t = CSphVector<AttrValue_t>;
 
 
 /// parser view on a generic node
 /// CAUTION, nodes get copied in the parser all the time, must keep assignment slim
-struct SqlNode_t
+struct SqlNode_t final
 {
 	int						m_iStart = 0;	///< first byte relative to m_pBuf, inclusive
 	int						m_iEnd = 0;		///< last byte relative to m_pBuf, exclusive! thus length = end - start
 	int						m_iType = 0;	///< TOK_xxx type for insert values; SPHINXQL_TOK_xxx code for special idents
 	float					m_fValue = 0.0;
-	AttrValues_p			m_pValues { nullptr };	///< filter values vector (FIXME? replace with numeric handles into parser state?)
+	int 					m_iValues = -1;    ///< filter values vector (idx of vec stored in the parser)
 	uint64_t				m_uValue = 0;
 	int						m_iParsedOp = -1;
 	bool					m_bNegative = false;	// this flag means that '-' was explicitly specified before the integer const
 
 							SqlNode_t() = default;
 
-	void					SetValueInt ( int64_t iValue );
-	void					SetValueInt ( uint64_t uValue, bool bNegative );
-	int64_t					GetValueInt() const;
-	uint64_t				GetValueUint() const;
-	void					CopyValueInt ( const SqlNode_t & tRhs );
+	void					SetValueInt ( int64_t iValue ) noexcept;
+	void					SetValueInt ( uint64_t uValue, bool bNegative ) noexcept;
+	void					SetValueFloat ( float fValue ) noexcept;
+	int64_t					GetValueInt() const noexcept;
+	uint64_t				GetValueUint() const noexcept;
+	float					GetValueFloat() const noexcept	{ return m_fValue; }
+	void					CopyValueInt ( const SqlNode_t & tRhs ) noexcept;
 };
-
 
 /// types of string-list filters.
 enum class StrList_e
@@ -68,7 +80,7 @@ enum
 {
 	SPHINXQL_TOK_COUNT		= -1,
 	SPHINXQL_TOK_GROUPBY	= -2,
-	SPHINXQL_TOK_WEIGHT		= -3
+	SPHINXQL_TOK_WEIGHT		= -3,
 };
 
 
@@ -103,17 +115,19 @@ enum SqlStmt_e
 	STMT_FLUSH_RAMCHUNK,
 	STMT_SHOW_VARIABLES,
 	STMT_TRUNCATE_RTINDEX,
-	STMT_SELECT_SYSVAR,
+	STMT_SELECT_COLUMNS, // was STMT_SELECT_SYSVAR
 	STMT_SHOW_COLLATION,
 	STMT_SHOW_CHARACTER_SET,
 	STMT_OPTIMIZE_INDEX,
 	STMT_SHOW_AGENT_STATUS,
 	STMT_SHOW_INDEX_STATUS,
+	STMT_SHOW_FEDERATED_INDEX_STATUS,
 	STMT_SHOW_PROFILE,
 	STMT_ALTER_ADD,
 	STMT_ALTER_DROP,
+	STMT_ALTER_MODIFY,
 	STMT_SHOW_PLAN,
-	STMT_SELECT_DUAL,
+//	STMT_SELECT_DUAL, // deprecated to STMT_SELECT_COLUMNS as more general
 	STMT_SHOW_DATABASES,
 	STMT_CREATE_PLUGIN,
 	STMT_DROP_PLUGIN,
@@ -145,6 +159,9 @@ enum SqlStmt_e
 	STMT_SHOW_SETTINGS,
 	STMT_ALTER_REBUILD_SI,
 	STMT_KILL,
+	STMT_SHOW_LOCKS,
+	STMT_SHOW_SCROLL,
+	STMT_SHOW_TABLE_INDEXES,
 
 	STMT_TOTAL
 };
@@ -179,6 +196,7 @@ struct SqlInsert_t
 		QUOTED_STRING = 263,
 		CONST_STRINGS = 269,
 		TABLE = 378,
+		TOK_NULL = 473, // NULL is already reserved using TOK_NULL
 	};
 
 	int						m_iType = 0;
@@ -210,7 +228,7 @@ struct SqlStmt_t
 
 											   // SELECT specific
 	CSphQuery				m_tQuery;
-	std::unique_ptr<ISphTableFunc>			m_pTableFunc;
+	std::unique_ptr<ISphTableFunc> m_pTableFunc;
 
 	CSphString				m_sTableFunc;
 	StrVec_t				m_dTableFuncArgs;
@@ -258,6 +276,7 @@ public:
 	DWORD					m_uFieldFlags = 0;
 	DWORD					m_uAttrFlags = 0;
 	int						m_iBits = -1;
+	knn::IndexSettings_t	m_tAlterKNN;
 
 	// CREATE TABLE specific
 	CreateTableSettings_t	m_tCreateTable;
@@ -268,6 +287,9 @@ public:
 	// SHOW THREADS specific
 	int						m_iThreadsCols = -1;
 	CSphString				m_sThreadFormat;
+
+	// JOIN-specific
+	CSphQuery				m_tJoinQueryOptions;
 
 	// generic parameter, different meanings in different statements
 	// filter pattern in DESCRIBE, SHOW TABLES / META / VARIABLES
@@ -286,6 +308,7 @@ public:
 
 	CSphVector<CSphString>	m_dStringSubkeys;
 	CSphVector<int64_t>		m_dIntSubkeys;
+	bool					m_bForce = false;
 
 	std::unique_ptr<DebugCmd::DebugCommand_t> m_pDebugCmd;
 
@@ -314,11 +337,10 @@ public:
 	}
 };
 
+enum class Option_e : BYTE;
 
 class SqlParserTraits_c : ISphNoncopyable
 {
-	bool m_bWrongParserSyntaxError = false;
-
 public:
 	const char *	m_pBuf;
 	CSphString *	m_pParseError;
@@ -331,17 +353,36 @@ public:
 	void			PushQuery();
 	CSphString &	ToString ( CSphString & sRes, const SqlNode_t & tNode ) const;
 	CSphString		ToStringUnescape ( const SqlNode_t & tNode ) const;
+	float			ToFloat ( const SqlNode_t & tNode ) const { return (float) strtod ( m_pBuf+tNode.m_iStart, nullptr ); }
 	void			ProcessParsingError ( const char* szMessage );
 	bool 			IsWrongSyntaxError() const noexcept;
 
+	bool			AddOption ( const SqlNode_t & tIdent, const SqlNode_t & tValue );
+	bool			AddOption ( const SqlNode_t & tIdent, const SqlNode_t & tValue, const SqlNode_t & sArg );
+	bool			AddOption ( const SqlNode_t & tIdent, CSphVector<CSphNamedInt> & dNamed );
 	void			DefaultOk ( std::initializer_list<const char*> sList = {} );
 	void			SetIndex ( const SqlNode_t& tNode ) const;
-	void 			AddComment ( const SqlNode_t* tNode ) const;
+	void			SetIndex ( const CSphString& sIndex ) const;
+	void 			Comment ( const SqlNode_t& tNode ) const;
+	int				AddMvaVec () noexcept;
+	AttrValueVec_t&	GetMvaVec (int iIdx) const noexcept;
+	AttrValues_p	CloneMvaVecPtr ( int iIdx ) const noexcept;
+
+	void			SetDefaultTableForOptions();
+	bool			SetTableForOptions ( const SqlNode_t & tNode );
 
 protected:
+	CSphVector<SqlStmt_t> &		m_dStmt;
+	CSphVector<AttrValueVec_t>	m_dMultiValues;
+	CSphQuery *					m_pQueryForOptions = nullptr;
+
 					SqlParserTraits_c ( CSphVector<SqlStmt_t> &	dStmt, const char* szQuery, CSphString* pError );
 
-	CSphVector<SqlStmt_t> &	m_dStmt;
+	bool			CheckInteger ( const CSphString& sOpt, const CSphString& sVal ) const;
+	virtual bool	CheckOption ( Option_e eOption ) const;
+
+private:
+	bool m_bWrongParserSyntaxError = false;
 };
 
 
@@ -349,6 +390,7 @@ bool	sphParseSqlQuery ( Str_t sQuery, CSphVector<SqlStmt_t> & dStmt, CSphString 
 bool	PercolateParseFilters ( const char * sFilters, ESphCollation eCollation, const CSphSchema & tSchema, CSphVector<CSphFilterSettings> & dFilters, CSphVector<FilterTreeItem_t> & dFilterTree, CSphString & sError );
 void	SqlParser_SplitClusterIndex ( CSphString & sIndex, CSphString * pCluster );
 void	InitParserOption();
+bool	FormatScrollSettings ( const AggrResult_t & tAggrRes, const CSphQuery & tQuery, CSphString & sSettings );
 
 enum class AddOption_e
 {
@@ -357,7 +399,7 @@ enum class AddOption_e
 	FAILED
 };
 
-AddOption_e AddOption ( CSphQuery & tQuery, const CSphString & sOpt, const CSphString & sVal, const std::function<CSphString ()> & fnGetUnescaped, SqlStmt_e eStmt, CSphString & sError );
+AddOption_e AddOption ( CSphQuery & tQuery, const CSphString & sOpt, const CSphString & sVal, const CSphString & sValOrig, const std::function<CSphString ()> & fnGetUnescaped, SqlStmt_e eStmt, CSphString & sError );
 AddOption_e AddOption ( CSphQuery & tQuery, const CSphString & sOpt, const CSphString & sValue, int64_t iValue, SqlStmt_e eStmt, CSphString & sError );
 AddOption_e AddOption ( CSphQuery & tQuery, const CSphString & sOpt, CSphVector<CSphNamedInt> & dNamed, SqlStmt_e eStmt, CSphString & sError );
 AddOption_e AddOptionRanker ( CSphQuery & tQuery, const CSphString & sOpt, const CSphString & sVal, const std::function<CSphString ()> & fnGetUnescaped, SqlStmt_e eStmt, CSphString & sError );

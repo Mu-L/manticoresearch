@@ -1,0 +1,70 @@
+––– input –––
+export PATH=/usr/bin:/usr/local/bin:/usr/sbin:/sbin:/bin
+––– output –––
+––– input –––
+apt-get update -y > /dev/null; echo $?
+––– output –––
+0
+––– input –––
+export DEBIAN_FRONTEND=noninteractive && apt-get install -y unattended-upgrades gnupg2 procps wget mariadb-client > /dev/null 2>&1; echo $?
+––– output –––
+0
+––– input –––
+export TERM=xterm && export LC_ALL=C.UTF-8 && export LANG=C.UTF-8
+––– output –––
+––– input –––
+wget -q https://repo.manticoresearch.com/manticore-repo.noarch.deb
+––– output –––
+––– input –––
+dpkg -i manticore-repo.noarch.deb > /dev/null; echo $?
+––– output –––
+gpg: key 14D612DB3D2730E2: "Manticore Search <support@manticoresearch.com>" not changed
+gpg: Total number processed: 1
+gpg:              unchanged: 1
+0
+––– input –––
+apt-get update -y > /dev/null; echo $?
+––– output –––
+0
+––– input –––
+apt-get install -y manticore manticore-extra > /dev/null 2>&1; echo $?
+––– output –––
+0
+––– input –––
+searchd --version
+––– output –––
+Manticore %{VERSION} (columnar %{VERSION}) (secondary %{VERSION}) (knn %{VERSION})
+Copyright (c) 2001-2016, Andrew Aksyonoff
+Copyright (c) 2008-2016, Sphinx Technologies Inc (http://sphinxsearch.com)
+Copyright (c) 2017-%{YEAR}, Manticore Software LTD (https://manticoresearch.com)
+––– input –––
+dpkg-reconfigure unattended-upgrades > /dev/null 2>&1; echo $?
+––– output –––
+0
+––– input –––
+echo "Unattended-Upgrade::Origins-Pattern { \"origin=Debian,codename=\${distro_codename},label=Debian\"; \"origin=Debian,codename=\${distro_codename},label=Debian-Security\"; \"origin=Debian,codename=\${distro_codename}-security,label=Debian-Security\"; }; Unattended-Upgrade::Package-Blacklist { }; Unattended-Upgrade::Remove-Unused-Dependencies \"true\";" > /etc/apt/apt.conf.d/50unattended-upgrades
+––– output –––
+––– input –––
+unattended-upgrade --dry-run -d 2>/dev/null| grep manticore | grep remov
+––– output –––
+––– input –––
+manticore-executor -v
+––– output –––
+PHP %{VERSION} (cli) (built: #!/[a-zA-Z]{3}/!# #!/[0-9]+/!# %{YEAR} %{TIME}) (NTS)
+Copyright (c) The PHP Group
+Zend Engine %{VERSION}, Copyright (c) Zend Technologies
+––– block: start-searchd-release –––
+––– block: check-searchd-process –––
+––– block: check-backup –––
+––– input –––
+apt-get remove -y 'manticore*' > /dev/null 2>&1; echo $?
+––– output –––
+0
+––– input –––
+dpkg -l | grep ^rc | awk '/^rc/ && /manticore/ { print $2 }'
+––– output –––
+manticore-common
+manticore-repo
+manticore-server
+manticore-server-core
+manticore-tools

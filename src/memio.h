@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2017-2023, Manticore Software LTD (https://manticoresearch.com)
+// Copyright (c) 2017-2024, Manticore Software LTD (https://manticoresearch.com)
 // Copyright (c) 2001-2016, Andrew Aksyonoff
 // Copyright (c) 2008-2016, Sphinx Technologies Inc
 // All rights reserved
@@ -52,6 +52,7 @@ T GetVal( MemoryReader_c& tReader );
 // first DWORD is len, then follows data
 template<typename VECTOR>
 void GetArray ( VECTOR& dBuf, MemoryReader_c& tIn );
+void GetArray ( CSphVector<CSphString>& dBuf, MemoryReader_c& tIn );
 
 class MemoryWriter_c : public Writer_i
 {
@@ -63,6 +64,8 @@ public:
 	void	ZipInt ( DWORD uVal ) override;
 	void	PutString ( const CSphString & sVal ) override;
 	void	PutString ( const char * szVal ) override;
+	void	PutZString ( const CSphString & sVal ) final;
+	void	PutZString ( const char * szVal ) final;
 	void	PutDword ( DWORD uVal ) override;
 	void	PutOffset ( SphOffset_t uValue ) override;
 	void	PutWord ( WORD uVal ) override;
@@ -82,6 +85,7 @@ void PutVal ( MemoryWriter_c& tWriter, T tVal );
 
 // put DWORD size, then elems
 template<typename T>
+void SaveArray ( const VecTraits_T<T>& dBuf, MemoryWriter_c& tOut );
 void SaveArray ( const VecTraits_T<CSphString>& dBuf, MemoryWriter_c& tOut );
 
 // fixme: get rid of this

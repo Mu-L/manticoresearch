@@ -8,6 +8,8 @@ variables:
   VERBOSE: 1
   DIAGNOSTIC: 1
   PACK_ICUDATA: 0
+  PACK_GALERA: 0
+  CMAKE_XTRA: -DCMAKE_UNITY_BUILD=1
 
 # ==================== .helper generic build ======================
 
@@ -18,10 +20,11 @@ variables:
     - if: $CI_MERGE_REQUEST_ID
       when: manual
     - if: $CI_MERGE_REQUEST_ID == null
+      when: manual
   needs: [ ]
   tags:
     - docker
-  image: manticoresearch/external_toolchain:clang15_cmake3263
+  image: manticoresearch/external_toolchain:vcpkg331_20250114
   variables:
     CACHEB: "../cache"
     arch: x86_64
@@ -29,7 +32,7 @@ variables:
     sysroot: roots_nov22
   script:
     - mkdir build && cd build
-    - cmake -DPACK=1 -DBUILD_TAG=$RELEASE_TAG ..
+    - cmake -DPACK=1 -DBUILD_TAG=$RELEASE_TAG $CMAKE_XTRA ..
     - cmake --build . --target package
   cache:
     key: release_$DISTR$arch
@@ -49,6 +52,7 @@ variables:
   variables:
     boost: boost_rhel_feb17
   before_script:
+    - export CMAKE_TOOLCHAIN_FILE=$(pwd)/dist/build_dockers/cross/linux.cmake
     - ln -s $(pwd) /builds_manticoresearch_dev_usr_src_debug_manticore_component_src_0
     - cd /builds_manticoresearch_dev_usr_src_debug_manticore_component_src_0
   artifacts:
@@ -63,7 +67,7 @@ variables:
   stage: repoupload
   interruptible: true
   tags:
-    - dev-host
+    - repo
   rules:
     - if: $CI_MERGE_REQUEST_ID
       when: manual
@@ -100,6 +104,8 @@ variables:
 
 macos:
   extends: [ .build ]
+  before_script:
+    - export CMAKE_TOOLCHAIN_FILE=$(pwd)/dist/build_dockers/cross/osx.cmake
   variables:
     DISTR: macos
 
@@ -107,9 +113,8 @@ macos_arm:
   extends: [ macos ]
   variables:
     arch: arm64
-    HOMEBREW_PREFIX: /opt/homebrew
 
-collect_macos:
+.collect_macos:
   extends: [ .collect_arc ]
   needs: [ macos, macos_arm ]
 
@@ -120,7 +125,8 @@ windows:
   extends: [ .build ]
   variables:
     arch: x64
-    sysroot: roots_apr12
+    sysroot: roots_mysql83_jan17
+    boost: boost_80
     DISTR: windows
 
 # windows build with native clang flavour
@@ -129,7 +135,7 @@ windows:
   before_script:
     - export CMAKE_TOOLCHAIN_FILE=$(pwd)/dist/build_dockers/cross/windows.cmake
 
-collect_windows:
+.collect_windows:
   extends: [ .collect_arc ]
   needs: [ windows ]
 
@@ -145,7 +151,7 @@ rhel7_arm:
   variables:
     arch: aarch64
 
-collect_rhel7:
+.collect_rhel7:
   extends: [ .collect_rpm ]
   needs: [ rhel7, rhel7_arm ]
   variables:
@@ -164,7 +170,7 @@ rhel8_arm:
   variables:
     arch: aarch64
 
-collect_rhel8:
+.collect_rhel8:
   extends: [ .collect_rpm ]
   needs: [ rhel8, rhel8_arm ]
   variables:
@@ -183,7 +189,7 @@ rhel9_arm:
   variables:
     arch: aarch64
 
-collect_rhel9:
+.collect_rhel9:
   extends: [ .collect_rpm ]
   needs: [ rhel9, rhel9_arm ]
   variables:
@@ -195,6 +201,8 @@ collect_rhel9:
 
 bionic:
   extends: [ .build ]
+  before_script:
+    - export CMAKE_TOOLCHAIN_FILE=$(pwd)/dist/build_dockers/cross/linux.cmake
   variables:
     DISTR: bionic
 
@@ -203,7 +211,7 @@ bionic_arm:
   variables:
     arch: aarch64
 
-collect_bionic:
+.collect_bionic:
   extends: [ .collect_deb ]
   needs: [ bionic, bionic_arm ]
   variables:
@@ -214,6 +222,8 @@ collect_bionic:
 
 focal:
   extends: [ .build ]
+  before_script:
+    - export CMAKE_TOOLCHAIN_FILE=$(pwd)/dist/build_dockers/cross/linux.cmake
   variables:
     DISTR: focal
 
@@ -222,7 +232,7 @@ focal_arm:
   variables:
     arch: aarch64
 
-collect_focal:
+.collect_focal:
   extends: [ .collect_deb ]
   needs: [ focal, focal_arm ]
   variables:
@@ -233,6 +243,8 @@ collect_focal:
 
 buster:
   extends: [ .build ]
+  before_script:
+    - export CMAKE_TOOLCHAIN_FILE=$(pwd)/dist/build_dockers/cross/linux.cmake
   variables:
     DISTR: buster
 
@@ -241,7 +253,7 @@ buster_arm:
   variables:
     arch: aarch64
 
-collect_buster:
+.collect_buster:
   extends: [ .collect_deb ]
   needs: [ buster, buster_arm ]
   variables:
@@ -252,6 +264,8 @@ collect_buster:
 
 bullseye:
   extends: [ .build ]
+  before_script:
+    - export CMAKE_TOOLCHAIN_FILE=$(pwd)/dist/build_dockers/cross/linux.cmake
   variables:
     DISTR: bullseye
 
@@ -260,7 +274,7 @@ bullseye_arm:
   variables:
     arch: aarch64
 
-collect_bullseye:
+.collect_bullseye:
   extends: [ .collect_deb ]
   needs: [ bullseye, bullseye_arm ]
   variables:
@@ -271,6 +285,8 @@ collect_bullseye:
 
 jammy:
   extends: [ .build ]
+  before_script:
+    - export CMAKE_TOOLCHAIN_FILE=$(pwd)/dist/build_dockers/cross/linux.cmake
   variables:
     DISTR: jammy
 
@@ -279,7 +295,7 @@ jammy_arm:
   variables:
     arch: aarch64
 
-collect_jammy:
+.collect_jammy:
   extends: [ .collect_deb ]
   needs: [ jammy, jammy_arm ]
   variables:
@@ -290,6 +306,8 @@ collect_jammy:
 
 bookworm:
   extends: [ .build ]
+  before_script:
+    - export CMAKE_TOOLCHAIN_FILE=$(pwd)/dist/build_dockers/cross/linux.cmake
   variables:
     DISTR: bookworm
 
@@ -298,7 +316,7 @@ bookworm_arm:
   variables:
     arch: aarch64
 
-collect_bookworm:
+.collect_bookworm:
   extends: [ .collect_deb ]
   needs: [ bookworm, bookworm_arm ]
   variables:
@@ -306,18 +324,18 @@ collect_bookworm:
 
 # ==================== Docker image ======================
 
-nsis_release:
+.nsis_release:
   stage: deploy
   rules:
   trigger:
     include: dist/nsis-release.yml
   needs:
-    - job: collect_windows
+    - job: .collect_windows
 
-build_docker:
+.build_docker:
   stage: deploy
   needs:
-    - job: collect_focal
+    - job: .collect_focal
       optional: true
   interruptible: true
   variables:
