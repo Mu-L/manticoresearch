@@ -69,6 +69,10 @@ add_library ( lmanticore STATIC sphinx.cpp sphinxquery.cpp sphinxutils.cpp
 		aggrexpr.cpp joinsorter.cpp queuecreator.cpp exprgeodist.cpp exprremap.cpp exprdocstore.cpp schematransform.cpp
 		sortergroup.cpp sortertraits.cpp sorterprecalc.cpp querycontext.cpp skip_cache.cpp jsonsi.cpp sorterscroll.cpp )
 
+if (WIN32)
+target_link_libraries ( lmanticore PRIVATE dbghelp AdvAPI32 ShLwApi )
+endif()
+
 add_library ( lstem STATIC sphinxsoundex.cpp sphinxmetaphone.cpp sphinxstemen.cpp sphinxstemru.cpp sphinxstemru.inl
 		sphinxstemcz.cpp sphinxstemar.cpp )
 target_link_libraries ( lstem PUBLIC lextra )
@@ -126,6 +130,9 @@ if (WIN32)
 	if (NOT CMAKE_CROSSCOMPILING)
 		target_compile_options ( lmanticore PRIVATE /bigobj )
 	endif ()
+endif ()
+if (NOT WIN32)
+	add_lib_for ( shm_open rt lmanticore )
 endif ()
 
 # Boost is required dependency now
@@ -261,6 +268,9 @@ add_library ( digest_sha1 digest_sha1.cpp )
 target_link_libraries ( digest_sha1 PRIVATE lextra )
 target_link_libraries ( lsearchd PUBLIC digest_sha1 lextra nlohmann_json::nlohmann_json )
 target_link_libraries ( lsearchd INTERFACE Boost::filesystem )
+if (WIN32)
+target_link_libraries ( lsearchd PRIVATE iphlpapi WS2_32 wsock32 )
+endif()
 
 function (stackmock processors compiler versions config values)
 	if (NOT CMAKE_SYSTEM_PROCESSOR IN_LIST processors)
@@ -350,9 +360,11 @@ target_link_libraries ( lsearchd PUBLIC repli_stuff)
 trace ( lextra )
 trace ( lsearchd )
 
+add_subdirectory ( daemon )
+
 # our executables
 add_executable ( searchd searchd.cpp )
-target_link_libraries ( searchd searchd_ssl lmanticore lsearchd )
+target_link_libraries ( searchd daemon searchd_ssl lmanticore lsearchd )
 
 if (NOT STATIC_BINARY)
 	add_executable ( indexer indexer.cpp )
@@ -436,7 +448,7 @@ if (WITH_MYSQL)
 	source_group ( "Testing config" FILES testrt.conf.in )
 	add_executable ( testrt testrt.cpp ${MANTICORE_BINARY_DIR}/config/rtestconfig.h )
 	target_compile_definitions ( testrt PRIVATE "DATAFLD=\"${DATAFLD}/\"" )
-	target_link_libraries ( testrt PRIVATE source_mysql PUBLIC lmanticore $<$<PLATFORM_ID:Windows>:psapi.lib> )
+	target_link_libraries ( testrt PRIVATE source_mysql PUBLIC lmanticore $<$<PLATFORM_ID:Windows>:psapi> )
 	if (HAVE_RTESTCONFIG_H)
 		target_compile_definitions ( testrt PRIVATE "-DHAVE_RTESTCONFIG_H" )
 	endif ()
